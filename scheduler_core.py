@@ -265,27 +265,27 @@ async def delayed_auto_sync(context):
 async def scheduled_auto_sync_summer(context):
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.datetime.now(kst)
-    
+
     if now.hour < 10:
         target_time = now.replace(hour=10, minute=0, second=0, microsecond=0)
         delay = (target_time - now).total_seconds()
         context.job_queue.run_once(delayed_auto_sync, delay, data=context.job.data, chat_id=context.job.chat_id)
         logging.info(f"⏳ [정산 지연 엔진 가동] 100% 확정 결제 데이터 스캔을 위해 동기화 스케줄을 10:00로 시프트합니다. ({delay}초 뒤 격발)")
         return
-        
+
     await run_auto_sync(context, "10:00")
 
 async def scheduled_auto_sync_winter(context):
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.datetime.now(kst)
-    
+
     if now.hour < 10:
         target_time = now.replace(hour=10, minute=0, second=0, microsecond=0)
         delay = (target_time - now).total_seconds()
         context.job_queue.run_once(delayed_auto_sync, delay, data=context.job.data, chat_id=context.job.chat_id)
         logging.info(f"⏳ [정산 지연 엔진 가동] 100% 확정 결제 데이터 스캔을 위해 동기화 스케줄을 10:00로 시프트합니다. ({delay}초 뒤 격발)")
         return
-        
+
     await run_auto_sync(context, "10:00")
 
 async def run_auto_sync(context, time_str):
@@ -295,13 +295,13 @@ async def run_auto_sync(context, time_str):
     
     success_tickers = []
     for t in context.job.data['cfg'].get_active_tickers():
-        res = await bot.process_auto_sync(t, chat_id, context, silent_ledger=True)
+        res = await bot.sync_engine.process_auto_sync(t, chat_id, context, silent_ledger=True)
         if res == "SUCCESS":
             success_tickers.append(t)
             
     if success_tickers:
         async with context.job.data['tx_lock']:
             _, holdings = await asyncio.to_thread(context.job.data['broker'].get_account_balance)
-        await bot._display_ledger(success_tickers[0], chat_id, context, message_obj=status_msg, pre_fetched_holdings=holdings)
+        await bot.sync_engine._display_ledger(success_tickers[0], chat_id, context, message_obj=status_msg, pre_fetched_holdings=holdings)
     else:
         await status_msg.edit_text(f"📝 <b>[{time_str}] 장부 동기화 완료</b> (표시할 진행 중인 장부가 없습니다)", parse_mode='HTML')

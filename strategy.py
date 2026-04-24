@@ -79,7 +79,7 @@ class InfiniteStrategy:
         except Exception as e:
             return {"vwap_price": 0.0, "is_strong_up": False, "is_strong_down": False}
 
-    def get_plan(self, ticker, current_price, avg_price, qty, prev_close, ma_5day=0.0, market_type="REG", available_cash=0, is_simulation=False, vwap_status=None):
+    def get_plan(self, ticker, current_price, avg_price, qty, prev_close, ma_5day=0.0, market_type="REG", available_cash=0, is_simulation=False, vwap_status=None, is_snapshot_mode=False):
         version = self.cfg.get_version(ticker)
         
         if version in ["V13", "V17", "V_VWAP", "V_AVWAP"]:
