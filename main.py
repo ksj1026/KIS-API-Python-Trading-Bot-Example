@@ -19,6 +19,7 @@ import logging
 import datetime
 import pytz
 import asyncio
+import threading
 import math # 🚨 [수술 완료] NaN 검증용 math 모듈 추가
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from dotenv import load_dotenv
@@ -84,7 +85,7 @@ est_tz_log = pytz.timezone('US/Eastern')
 log_filename = f"logs/bot_app_{datetime.datetime.now(est_tz_log).strftime('%Y%m%d')}.log"
 
 logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', 
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     level=logging.INFO,
     handlers=[
         logging.FileHandler(log_filename, encoding='utf-8'),
@@ -153,11 +154,40 @@ def main():
     print("=" * 60)
     
     perform_self_cleaning()
-    
+
     # 상단에서 ADMIN_CHAT_ID 유효성 검사를 마쳤으므로 무조건 세팅
     cfg.set_chat_id(ADMIN_CHAT_ID)
-    
+
     broker = KoreaInvestmentBroker(APP_KEY, APP_SECRET, CANO, ACNT_PRDT_CD)
+
+    def _start_wake_listener(broker_ref):
+        """macOS 슬립 해제(Wake) 감지 시 KIS API 토큰 즉시 갱신"""
+        try:
+            from Cocoa import NSWorkspace, NSWorkspaceDidWakeNotification
+            from Foundation import NSNotificationCenter
+
+            class _WakeObserver:
+                def handleWake_(self, notification):
+                    logging.info("🌅 [Wake 감지] 슬립 해제 감지. KIS API 토큰 즉시 갱신 시작.")
+                    try:
+                        broker_ref._get_access_token(force=True)
+                        logging.info("🔑 [Wake 감지] 토큰 갱신 완료.")
+                    except Exception as e:
+                        logging.error(f"🚨 [Wake 감지] 토큰 갱신 실패: {e}")
+
+            observer = _WakeObserver()
+            nc = NSNotificationCenter.defaultCenter()
+            nc.addObserver_selector_name_object_(
+                observer, "handleWake:", NSWorkspaceDidWakeNotification, None
+            )
+            NSWorkspace.sharedWorkspace()
+            import AppKit
+            AppKit.NSApplication.sharedApplication().run()
+        except Exception as e:
+            logging.warning(f"⚠️ [Wake 감지] 리스너 초기화 실패: {e}")
+
+    threading.Thread(target=_start_wake_listener, args=(broker,), daemon=True).start()
+    logging.info("🌅 [Wake 감지] macOS 슬립 해제 감지 리스너 시작")
     strategy = InfiniteStrategy(cfg)
     queue_ledger = QueueLedger()
     strategy_rev = ReversionStrategy()
