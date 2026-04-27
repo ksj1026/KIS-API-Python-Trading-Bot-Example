@@ -168,19 +168,10 @@ def main():
 
             class _WakeObserver:
                 def handleWake_(self, notification):
-                    logging.info("🌅 [Wake 감지] 슬립 해제 감지. 전날 휴장 여부 확인 중...")
+                    logging.info("🌅 [Wake 감지] 슬립 해제 감지. KIS API 토큰 만료 여부 확인 중...")
                     try:
-                        import pandas_market_calendars as mcal
-                        est = pytz.timezone('US/Eastern')
-                        yesterday = (datetime.datetime.now(est) - datetime.timedelta(days=1)).date()
-                        nyse = mcal.get_calendar('NYSE')
-                        schedule = nyse.schedule(start_date=yesterday, end_date=yesterday)
-                        if schedule.empty or yesterday.weekday() >= 5:
-                            logging.info("🔑 [Wake 감지] 전날 휴장일 확인. KIS API 토큰 신규 발급 시작.")
-                            broker_ref._get_access_token(force=True)
-                            logging.info("🔑 [Wake 감지] 토큰 신규 발급 완료.")
-                        else:
-                            logging.info("🔑 [Wake 감지] 전날 개장일. 토큰 발급 스킵.")
+                        broker_ref._get_access_token(force=False)
+                        logging.info("🔑 [Wake 감지] 토큰 확인 완료.")
                     except Exception as e:
                         logging.error(f"🚨 [Wake 감지] 토큰 발급 실패: {e}")
 
