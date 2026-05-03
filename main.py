@@ -244,13 +244,13 @@ def main():
     
     # MODIFIED: [이중 잔고 동기화 방어] 사계절(TARGET_HOUR) 기준에 맞춰 여름/겨울 동기화 스케줄을 단 하나만 등록
     SYNC_FUNC = scheduled_auto_sync_summer if TARGET_HOUR == 17 else scheduled_auto_sync_winter
-    jq.run_daily(SYNC_FUNC, time=datetime.time(9, 30, tzinfo=kst), days=tuple(range(7)), chat_id=ADMIN_CHAT_ID, data=app_data)
+    jq.run_daily(SYNC_FUNC, time=datetime.time(16, 30, tzinfo=kst), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
 
-    # 콜드스타트 복구: 봇 재시작 시 당일 10:35 이전이면 delayed_auto_sync 즉시 등록
+    # 콜드스타트 복구: 봇 재시작 시 당일 16:50 이전이면 delayed_auto_sync 즉시 등록
     import datetime as _dt
     _now_kst = _dt.datetime.now(kst)
-    if _now_kst.hour < 10:
-        _target = _now_kst.replace(hour=10, minute=0, second=0, microsecond=0)
+    if _now_kst.hour < 16 or (_now_kst.hour == 16 and _now_kst.minute < 50):
+        _target = _now_kst.replace(hour=16, minute=50, second=0, microsecond=0)
         _delay = (_target - _now_kst).total_seconds()
         jq.run_once(delayed_auto_sync, _delay, chat_id=ADMIN_CHAT_ID, data=app_data)
     

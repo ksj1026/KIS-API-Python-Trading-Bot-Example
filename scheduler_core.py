@@ -259,34 +259,34 @@ async def scheduled_force_reset(context):
 # ==========================================================
 
 async def delayed_auto_sync(context):
-    """10:00 KST에 최종 격발되는 실질적 정산 엔진"""
-    await run_auto_sync(context, "10:00")
+    """16:50 KST에 최종 격발되는 실질적 정산 엔진"""
+    await run_auto_sync(context, "16:50")
 
 async def scheduled_auto_sync_summer(context):
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.datetime.now(kst)
 
-    if now.hour < 10:
-        target_time = now.replace(hour=10, minute=0, second=0, microsecond=0)
+    if now.hour < 16 or (now.hour == 16 and now.minute < 50):
+        target_time = now.replace(hour=16, minute=50, second=0, microsecond=0)
         delay = (target_time - now).total_seconds()
         context.job_queue.run_once(delayed_auto_sync, delay, data=context.job.data, chat_id=context.job.chat_id)
-        logging.info(f"⏳ [정산 지연 엔진 가동] 100% 확정 결제 데이터 스캔을 위해 동기화 스케줄을 10:00로 시프트합니다. ({delay}초 뒤 격발)")
+        logging.info(f"⏳ [정산 지연 엔진 가동] 동기화 스케줄을 16:50으로 시프트합니다. ({delay}초 뒤 격발)")
         return
 
-    await run_auto_sync(context, "10:00")
+    await run_auto_sync(context, "16:50")
 
 async def scheduled_auto_sync_winter(context):
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.datetime.now(kst)
 
-    if now.hour < 10:
-        target_time = now.replace(hour=10, minute=0, second=0, microsecond=0)
+    if now.hour < 16 or (now.hour == 16 and now.minute < 50):
+        target_time = now.replace(hour=16, minute=50, second=0, microsecond=0)
         delay = (target_time - now).total_seconds()
         context.job_queue.run_once(delayed_auto_sync, delay, data=context.job.data, chat_id=context.job.chat_id)
-        logging.info(f"⏳ [정산 지연 엔진 가동] 100% 확정 결제 데이터 스캔을 위해 동기화 스케줄을 10:00로 시프트합니다. ({delay}초 뒤 격발)")
+        logging.info(f"⏳ [정산 지연 엔진 가동] 동기화 스케줄을 16:50으로 시프트합니다. ({delay}초 뒤 격발)")
         return
 
-    await run_auto_sync(context, "10:00")
+    await run_auto_sync(context, "16:50")
 
 async def run_auto_sync(context, time_str):
     chat_id = context.job.chat_id
