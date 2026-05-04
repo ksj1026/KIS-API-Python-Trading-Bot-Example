@@ -239,18 +239,18 @@ def main():
     jq = app.job_queue
     
     # 1. 시스템 관리 스케줄러 (core)
-    for tt in [datetime.time(7,0,tzinfo=kst), datetime.time(11,0,tzinfo=kst), datetime.time(16,30,tzinfo=kst), datetime.time(22,0,tzinfo=kst)]:
+    for tt in [datetime.time(7,0,tzinfo=kst), datetime.time(11,0,tzinfo=kst), datetime.time(16,55,tzinfo=kst), datetime.time(22,0,tzinfo=kst)]:
         jq.run_daily(scheduled_token_check, time=tt, days=tuple(range(7)), chat_id=ADMIN_CHAT_ID, data=app_data)
     
     # MODIFIED: [이중 잔고 동기화 방어] 사계절(TARGET_HOUR) 기준에 맞춰 여름/겨울 동기화 스케줄을 단 하나만 등록
     SYNC_FUNC = scheduled_auto_sync_summer if TARGET_HOUR == 17 else scheduled_auto_sync_winter
-    jq.run_daily(SYNC_FUNC, time=datetime.time(16, 30, tzinfo=kst), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
+    jq.run_daily(SYNC_FUNC, time=datetime.time(17, 0, tzinfo=kst), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
 
-    # 콜드스타트 복구: 봇 재시작 시 당일 16:50 이전이면 delayed_auto_sync 즉시 등록
+    # 콜드스타트 복구: 봇 재시작 시 당일 17:00 이전이면 delayed_auto_sync 즉시 등록
     import datetime as _dt
     _now_kst = _dt.datetime.now(kst)
-    if _now_kst.hour < 16 or (_now_kst.hour == 16 and _now_kst.minute < 50):
-        _target = _now_kst.replace(hour=16, minute=50, second=0, microsecond=0)
+    if _now_kst.hour < 17:
+        _target = _now_kst.replace(hour=17, minute=0, second=0, microsecond=0)
         _delay = (_target - _now_kst).total_seconds()
         jq.run_once(delayed_auto_sync, _delay, chat_id=ADMIN_CHAT_ID, data=app_data)
     
@@ -261,7 +261,7 @@ def main():
     
     # 2. 실전 전투 매매 스케줄러 (trade)
     # MODIFIED: [이중 타격 방어] 17:05/18:05 동시 발사(Double-buying) 버그를 원천 차단하고 TARGET_HOUR에만 정규장 타격 스케줄 등록
-    jq.run_daily(scheduled_regular_trade, time=datetime.time(TARGET_HOUR, 10, tzinfo=kst), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
+    jq.run_daily(scheduled_regular_trade, time=datetime.time(TARGET_HOUR, 5, tzinfo=kst), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
     
     jq.run_daily(scheduled_vwap_init_and_cancel, time=datetime.time(15, 30, tzinfo=est), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
 
