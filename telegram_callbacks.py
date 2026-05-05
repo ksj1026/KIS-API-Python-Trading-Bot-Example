@@ -822,8 +822,7 @@ class TelegramCallbacks:
             chat_id = update.effective_chat.id
 
             if sub == "MAIN":
-                tickers = self.cfg.get_active_tickers()
-                msg, markup = self.view.get_vr_main_menu(self.cfg, tickers, vr_engine)
+                msg, markup = self.view.get_vr_main_menu(self.cfg, ['TQQQ'], vr_engine)
                 await query.edit_message_text(msg, reply_markup=markup, parse_mode='HTML')
 
             elif sub == "TOGGLE":
@@ -833,9 +832,7 @@ class TelegramCallbacks:
                 self.cfg.set_vr_config(ticker, vr_cfg)
                 state = "활성화" if vr_cfg['enabled'] else "비활성화"
                 await query.answer(f"[VR5] {ticker} {state}됨", show_alert=False)
-                # 메인 화면 새로고침
-                tickers = self.cfg.get_active_tickers()
-                msg, markup = self.view.get_vr_main_menu(self.cfg, tickers, vr_engine)
+                msg, markup = self.view.get_vr_main_menu(self.cfg, ['TQQQ'], vr_engine)
                 await query.edit_message_text(msg, reply_markup=markup, parse_mode='HTML')
 
             elif sub == "SETTINGS":

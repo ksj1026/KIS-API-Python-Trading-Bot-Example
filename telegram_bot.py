@@ -786,11 +786,10 @@ class TelegramController:
         await update.message.reply_text(msg, reply_markup=markup, parse_mode='HTML')
 
     async def cmd_vr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """VR5 밸류리밸런싱 메인 메뉴"""
+        """VR5 밸류리밸런싱 메인 메뉴 (TQQQ 전용)"""
         if not self._is_admin(update):
             return
         from strategy_vr import VRStrategy
         vr_engine = VRStrategy()
-        tickers = self.cfg.get_active_tickers()
-        msg, markup = self.view.get_vr_main_menu(self.cfg, tickers, vr_engine)
+        msg, markup = self.view.get_vr_main_menu(self.cfg, ['TQQQ'], vr_engine)
         await update.message.reply_text(msg, reply_markup=markup, parse_mode='HTML')
