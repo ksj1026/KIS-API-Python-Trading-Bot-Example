@@ -775,6 +775,106 @@ class TelegramView:
         img.save(fname, format="PNG", quality=100)
         return fname
 
+    # ==========================================================
+    # NEW: VR5 밸류리밸런싱 UI 렌더링
+    # ==========================================================
+    def get_vr_main_menu(self, cfg, tickers, vr_engine):
+        """VR5 메인 상태 화면 + 설정 버튼"""
+        lines = ["📊 <b>[ VR5 밸류리밸런싱 현황 ]</b>\n"]
+        keyboard = []
+
+        for t in tickers:
+            vr_cfg = cfg.get_vr_config(t)
+            enabled = vr_cfg.get('enabled', False)
+            v = float(vr_cfg.get('v_value', 0))
+            pool = float(vr_cfg.get('pool', 0))
+            band_pct = float(vr_cfg.get('band_pct', 15))
+            last_update = vr_cfg.get('last_v_update', '미설정')
+            weeks = vr_engine.weeks_since_v_update(vr_cfg)
+            needs_update = vr_engine.should_update_v(vr_cfg)
+
+            state_icon = '🟢 ON' if enabled else '⚫ OFF'
+            lines.append(f"▪️ <b>{t}</b> [{state_icon}]")
+            if v > 0:
+                low = v * (1 - band_pct / 100)
+                high = v * (1 + band_pct / 100)
+                lines.append(f"  V타겟: <b>${v:,.0f}</b>  밴드: ${low:,.0f}~${high:,.0f} (±{band_pct:.0f}%)")
+                lines.append(f"  풀: ${pool:,.0f}  G: {vr_cfg.get('g_factor', 10)}")
+                update_txt = f"{last_update}"
+                if weeks is not None:
+                    update_txt += f" ({weeks}주 전)"
+                if needs_update:
+                    update_txt += " ⚠️ 업데이트 필요"
+                lines.append(f"  마지막 V업데이트: {update_txt}")
+            else:
+                lines.append("  <i>V값 미설정 — 아래 [설정] 버튼으로 초기값을 입력하세요.</i>")
+            lines.append("")
+
+            toggle_label = f"⚫ {t} OFF" if enabled else f"🟢 {t} ON"
+            keyboard.append([
+                InlineKeyboardButton(toggle_label, callback_data=f"VR:TOGGLE:{t}"),
+                InlineKeyboardButton(f"⚙️ {t} 설정", callback_data=f"VR:SETTINGS:{t}"),
+            ])
+
+        msg = "\n".join(lines)
+        return msg, InlineKeyboardMarkup(keyboard)
+
+    def get_vr_settings_menu(self, ticker, vr_cfg, vr_engine):
+        """VR5 개별 종목 설정 메뉴"""
+        v = float(vr_cfg.get('v_value', 0))
+        pool = float(vr_cfg.get('pool', 0))
+        g = int(vr_cfg.get('g_factor', 10))
+        band_pct = float(vr_cfg.get('band_pct', 15))
+        next_v = vr_engine.calc_next_v(vr_cfg)
+        needs_update = vr_engine.should_update_v(vr_cfg)
+        update_badge = " ⚠️" if needs_update else ""
+
+        msg = (
+            f"⚙️ <b>[ VR5 {ticker} 설정 ]</b>\n\n"
+            f"▫️ 현재 V: <b>${v:,.0f}</b>\n"
+            f"▫️ 풀(Pool): <b>${pool:,.0f}</b>\n"
+            f"▫️ G 계수: <b>{g}</b> (적립식=10)\n"
+            f"▫️ 밴드: ±<b>{band_pct:.0f}%</b>\n"
+            f"▫️ 마지막 V업데이트: {vr_cfg.get('last_v_update', '미설정')}{update_badge}\n"
+            f"▫️ 다음 V (예상): <b>${next_v:,.0f}</b>\n"
+        )
+
+        keyboard = [
+            [InlineKeyboardButton("💰 V값 설정", callback_data=f"VR:SET_V:{ticker}"),
+             InlineKeyboardButton("🏦 풀 설정", callback_data=f"VR:SET_POOL:{ticker}")],
+            [InlineKeyboardButton("📐 G계수 설정", callback_data=f"VR:SET_G:{ticker}"),
+             InlineKeyboardButton("📏 밴드% 설정", callback_data=f"VR:SET_BAND:{ticker}")],
+            [InlineKeyboardButton(f"🔄 V 업데이트{update_badge}", callback_data=f"VR:UPDATE_V:{ticker}")],
+            [InlineKeyboardButton("🔍 밴드 체크 & 주문", callback_data=f"VR:CHECK:{ticker}")],
+            [InlineKeyboardButton("◀️ 돌아가기", callback_data="VR:MAIN")],
+        ]
+        return msg, InlineKeyboardMarkup(keyboard)
+
+    def get_vr_update_confirm(self, ticker, vr_cfg, vr_engine, deposit=0.0):
+        """V 업데이트 확인 화면"""
+        v1 = float(vr_cfg.get('v_value', 0))
+        next_v = vr_engine.calc_next_v(vr_cfg, deposit=deposit)
+        pool = float(vr_cfg.get('pool', 0))
+        g = int(vr_cfg.get('g_factor', 10))
+        increment = pool / g if g > 0 else 0.0
+
+        msg = (
+            f"🔄 <b>[ VR5 {ticker} V 업데이트 확인 ]</b>\n\n"
+            f"▫️ 현재 V: <b>${v1:,.0f}</b>\n"
+            f"▫️ Pool/G: ${pool:,.0f} / {g} = <b>+${increment:,.0f}</b>\n"
+            f"▫️ 입금/출금: <b>${deposit:+,.0f}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"▫️ 새 V: <b>${next_v:,.0f}</b>\n\n"
+            f"V 업데이트를 확정하시겠습니까?"
+        )
+        keyboard = [
+            [InlineKeyboardButton("✅ 확정", callback_data=f"VR:CONFIRM_V:{ticker}:{deposit}"),
+             InlineKeyboardButton("❌ 취소", callback_data=f"VR:SETTINGS:{ticker}")],
+        ]
+        return msg, InlineKeyboardMarkup(keyboard)
+
+    # ==========================================================
+
     def get_ticker_menu(self, current_tickers):
         keyboard = [
             [InlineKeyboardButton("🔥 SOXL 전용", callback_data="TICKER:SOXL")],

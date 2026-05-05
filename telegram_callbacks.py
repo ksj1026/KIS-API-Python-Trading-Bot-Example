@@ -797,7 +797,7 @@ class TelegramCallbacks:
         elif action == "INPUT":
             ticker = data[2]
             controller.user_states[update.effective_chat.id] = f"CONF_{sub}_{ticker}"
-            
+
             if sub == "SPLIT":
                 ko_name = "분할 횟수"
             elif sub == "TARGET":
@@ -810,5 +810,143 @@ class TelegramCallbacks:
                 ko_name = "증권사 수수료율(%)"
             else:
                 ko_name = "값"
-            
+
             await context.bot.send_message(update.effective_chat.id, f"⚙️ [{ticker}] {ko_name} 입력 (숫자만):")
+
+        # ==========================================================
+        # NEW: VR5 밸류리밸런싱 콜백 라우터
+        # ==========================================================
+        elif action == "VR":
+            from strategy_vr import VRStrategy
+            vr_engine = VRStrategy()
+            chat_id = update.effective_chat.id
+
+            if sub == "MAIN":
+                tickers = self.cfg.get_active_tickers()
+                msg, markup = self.view.get_vr_main_menu(self.cfg, tickers, vr_engine)
+                await query.edit_message_text(msg, reply_markup=markup, parse_mode='HTML')
+
+            elif sub == "TOGGLE":
+                ticker = data[2] if len(data) > 2 else ""
+                vr_cfg = self.cfg.get_vr_config(ticker)
+                vr_cfg['enabled'] = not vr_cfg.get('enabled', False)
+                self.cfg.set_vr_config(ticker, vr_cfg)
+                state = "활성화" if vr_cfg['enabled'] else "비활성화"
+                await query.answer(f"[VR5] {ticker} {state}됨", show_alert=False)
+                # 메인 화면 새로고침
+                tickers = self.cfg.get_active_tickers()
+                msg, markup = self.view.get_vr_main_menu(self.cfg, tickers, vr_engine)
+                await query.edit_message_text(msg, reply_markup=markup, parse_mode='HTML')
+
+            elif sub == "SETTINGS":
+                ticker = data[2] if len(data) > 2 else ""
+                vr_cfg = self.cfg.get_vr_config(ticker)
+                msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine)
+                await query.edit_message_text(msg, reply_markup=markup, parse_mode='HTML')
+
+            elif sub == "SET_V":
+                ticker = data[2] if len(data) > 2 else ""
+                controller.user_states[chat_id] = f"VR_SET_V_{ticker}"
+                await query.edit_message_text(
+                    f"💰 <b>[VR5] {ticker} V값 입력</b>\n목표 포트폴리오 가치(USD)를 입력하세요.\n예: <code>10000</code>",
+                    parse_mode='HTML'
+                )
+
+            elif sub == "SET_POOL":
+                ticker = data[2] if len(data) > 2 else ""
+                controller.user_states[chat_id] = f"VR_SET_POOL_{ticker}"
+                await query.edit_message_text(
+                    f"🏦 <b>[VR5] {ticker} 풀(Pool) 입력</b>\n별도 관리 투자 풀(USD)을 입력하세요.\n예: <code>50000</code>",
+                    parse_mode='HTML'
+                )
+
+            elif sub == "SET_G":
+                ticker = data[2] if len(data) > 2 else ""
+                controller.user_states[chat_id] = f"VR_SET_G_{ticker}"
+                await query.edit_message_text(
+                    f"📐 <b>[VR5] {ticker} G계수 입력</b>\n분할 계수를 입력하세요. (적립식 기본=10)\n예: <code>10</code>",
+                    parse_mode='HTML'
+                )
+
+            elif sub == "SET_BAND":
+                ticker = data[2] if len(data) > 2 else ""
+                controller.user_states[chat_id] = f"VR_SET_BAND_{ticker}"
+                await query.edit_message_text(
+                    f"📏 <b>[VR5] {ticker} 밴드% 입력</b>\nV 기준 허용 오차(%)를 입력하세요. (기본=15)\n예: <code>15</code>",
+                    parse_mode='HTML'
+                )
+
+            elif sub == "UPDATE_V":
+                ticker = data[2] if len(data) > 2 else ""
+                vr_cfg = self.cfg.get_vr_config(ticker)
+                controller.user_states[chat_id] = f"VR_UPDATE_V_{ticker}"
+                await query.edit_message_text(
+                    f"🔄 <b>[VR5] {ticker} V 업데이트</b>\n"
+                    f"이번 주기 입금(+) 또는 출금(-) 금액을 입력하세요.\n"
+                    f"추가 입금/출금이 없으면 <code>0</code>을 입력하세요.",
+                    parse_mode='HTML'
+                )
+
+            elif sub == "CONFIRM_V":
+                ticker = data[2] if len(data) > 2 else ""
+                deposit = float(data[3]) if len(data) > 3 else 0.0
+                vr_cfg = self.cfg.get_vr_config(ticker)
+                v1 = float(vr_cfg.get('v_value', 0))
+                new_v = vr_engine.calc_next_v(vr_cfg, deposit=deposit)
+                vr_cfg['v_value'] = new_v
+                vr_cfg['last_v_update'] = datetime.date.today().isoformat()
+                self.cfg.set_vr_config(ticker, vr_cfg)
+                msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine)
+                confirm_text = f"✅ <b>[VR5] {ticker} V 업데이트 완료!</b>\n▫️ ${v1:,.0f} → <b>${new_v:,.0f}</b>\n\n" + msg
+                await query.edit_message_text(confirm_text, reply_markup=markup, parse_mode='HTML')
+
+            elif sub == "CHECK":
+                ticker = data[2] if len(data) > 2 else ""
+                vr_cfg = self.cfg.get_vr_config(ticker)
+                if not vr_cfg.get('enabled') or vr_cfg.get('v_value', 0) <= 0:
+                    await query.answer("VR이 비활성화되어 있거나 V값이 설정되지 않았습니다.", show_alert=True)
+                    return
+
+                curr_p = await asyncio.to_thread(self.broker.get_current_price, ticker)
+                curr_p = float(curr_p or 0.0)
+                if curr_p <= 0:
+                    await query.answer("현재가 조회 실패. 잠시 후 다시 시도하세요.", show_alert=True)
+                    return
+
+                _, holdings = await asyncio.to_thread(self.broker.get_account_balance)
+                h = (holdings or {}).get(ticker) or {}
+                qty = int(float(h.get('qty', 0)))
+
+                decision = vr_engine.get_decision(ticker, curr_p, qty, vr_cfg)
+                action_vr = decision.get('action')
+                portfolio = decision.get('portfolio', 0)
+                v = decision.get('v', 0)
+                low = decision.get('low_target', 0)
+                high = decision.get('high_target', 0)
+
+                status_icon = '🟡 매수 신호' if action_vr == 'BUY' else ('🔴 매도 신호' if action_vr == 'SELL' else '🟢 정상')
+                result_msg = (
+                    f"🔍 <b>[VR5] {ticker} 밴드 체크 결과</b>\n"
+                    f"▫️ V: ${v:,.0f} / 밴드: ${low:,.0f}~${high:,.0f}\n"
+                    f"▫️ 포트폴리오: ${portfolio:,.0f} ({qty}주 × ${curr_p:.2f})\n"
+                    f"▫️ 상태: {status_icon}\n"
+                    f"▫️ {decision.get('reason', '')}"
+                )
+
+                if action_vr in ('BUY', 'SELL') and decision.get('qty', 0) > 0:
+                    order_qty = decision['qty']
+                    exec_price = (
+                        float(await asyncio.to_thread(self.broker.get_ask_price, ticker) or curr_p)
+                        if action_vr == 'BUY'
+                        else float(await asyncio.to_thread(self.broker.get_bid_price, ticker) or curr_p)
+                    )
+                    res = self.broker.send_order(ticker, action_vr, order_qty, exec_price, "LIMIT")
+                    if res.get('rt_cd') == '0':
+                        result_msg += f"\n\n✅ <b>{action_vr} {order_qty}주 @ ${exec_price:.2f} 주문 완료!</b>"
+                    else:
+                        result_msg += f"\n\n❌ 주문 실패: {res.get('msg1', '에러')}"
+
+                vr_cfg_refresh = self.cfg.get_vr_config(ticker)
+                settings_msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg_refresh, vr_engine)
+                await query.edit_message_text(result_msg + "\n\n" + settings_msg, reply_markup=markup, parse_mode='HTML')
+        # ==========================================================

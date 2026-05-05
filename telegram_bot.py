@@ -55,7 +55,7 @@ class TelegramController:
         self.strategy_rev = strategy_rev 
 
         self.sync_engine = TelegramSyncEngine(self.cfg, self.broker, self.strategy, self.queue_ledger, self.view, self.tx_lock, self.sync_locks)
-        self.states_handler = TelegramStates(self.cfg, self.broker, self.queue_ledger, self.sync_engine)
+        self.states_handler = TelegramStates(self.cfg, self.broker, self.queue_ledger, self.sync_engine, view=self.view)
         self.callbacks_handler = TelegramCallbacks(self.cfg, self.broker, self.strategy, self.queue_ledger, self.sync_engine, self.view, self.tx_lock)
 
     def _is_admin(self, update: Update):
@@ -780,7 +780,17 @@ class TelegramController:
     async def cmd_version(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         if not self._is_admin(update):
             return
-            
+
         history_data = self.cfg.get_full_version_history()
         msg, markup = self.view.get_version_message(history_data, page_index=None)
+        await update.message.reply_text(msg, reply_markup=markup, parse_mode='HTML')
+
+    async def cmd_vr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """VR5 밸류리밸런싱 메인 메뉴"""
+        if not self._is_admin(update):
+            return
+        from strategy_vr import VRStrategy
+        vr_engine = VRStrategy()
+        tickers = self.cfg.get_active_tickers()
+        msg, markup = self.view.get_vr_main_menu(self.cfg, tickers, vr_engine)
         await update.message.reply_text(msg, reply_markup=markup, parse_mode='HTML')

@@ -20,11 +20,12 @@ from telegram import Update
 from telegram.ext import ContextTypes
 
 class TelegramStates:
-    def __init__(self, config, broker, queue_ledger, sync_engine):
+    def __init__(self, config, broker, queue_ledger, sync_engine, view=None):
         self.cfg = config
         self.broker = broker
         self.queue_ledger = queue_ledger
         self.sync_engine = sync_engine
+        self.view = view
 
     async def handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE, controller):
         if not controller._is_admin(update):
@@ -125,6 +126,85 @@ class TelegramStates:
                 if not self.sync_engine.sync_locks[ticker].locked():
                     await self.sync_engine.process_auto_sync(ticker, chat_id, context, silent_ledger=False)
                     
+                return
+
+            # NEW: VR5 밸류리밸런싱 텍스트 입력 라우터
+            if state.startswith("VR_SET_") or state.startswith("VR_UPDATE_V_"):
+                from strategy_vr import VRStrategy
+                vr_engine = VRStrategy()
+                try:
+                    val = float(text)
+                except ValueError:
+                    del controller.user_states[chat_id]
+                    return await update.message.reply_text("❌ 숫자로 입력하세요. (입력 취소됨)")
+
+                if state.startswith("VR_SET_V_"):
+                    ticker = state[len("VR_SET_V_"):]
+                    vr_cfg = self.cfg.get_vr_config(ticker)
+                    if val <= 0:
+                        del controller.user_states[chat_id]
+                        return await update.message.reply_text("❌ V값은 0보다 커야 합니다. (입력 취소됨)")
+                    vr_cfg['v_value'] = round(val, 2)
+                    if not vr_cfg.get('last_v_update'):
+                        vr_cfg['last_v_update'] = datetime.date.today().isoformat()
+                    self.cfg.set_vr_config(ticker, vr_cfg)
+                    del controller.user_states[chat_id]
+                    return await update.message.reply_text(
+                        f"✅ <b>[VR5] {ticker} V값 설정 완료: ${val:,.0f}</b>", parse_mode='HTML'
+                    )
+
+                elif state.startswith("VR_SET_POOL_"):
+                    ticker = state[len("VR_SET_POOL_"):]
+                    vr_cfg = self.cfg.get_vr_config(ticker)
+                    if val < 0:
+                        del controller.user_states[chat_id]
+                        return await update.message.reply_text("❌ 풀 금액은 0 이상이어야 합니다. (입력 취소됨)")
+                    vr_cfg['pool'] = round(val, 2)
+                    self.cfg.set_vr_config(ticker, vr_cfg)
+                    del controller.user_states[chat_id]
+                    return await update.message.reply_text(
+                        f"✅ <b>[VR5] {ticker} Pool 설정 완료: ${val:,.0f}</b>", parse_mode='HTML'
+                    )
+
+                elif state.startswith("VR_SET_G_"):
+                    ticker = state[len("VR_SET_G_"):]
+                    g = int(val)
+                    if g <= 0:
+                        del controller.user_states[chat_id]
+                        return await update.message.reply_text("❌ G계수는 1 이상이어야 합니다. (입력 취소됨)")
+                    vr_cfg = self.cfg.get_vr_config(ticker)
+                    vr_cfg['g_factor'] = g
+                    self.cfg.set_vr_config(ticker, vr_cfg)
+                    del controller.user_states[chat_id]
+                    return await update.message.reply_text(
+                        f"✅ <b>[VR5] {ticker} G계수 설정 완료: {g}</b>", parse_mode='HTML'
+                    )
+
+                elif state.startswith("VR_SET_BAND_"):
+                    ticker = state[len("VR_SET_BAND_"):]
+                    if val <= 0 or val >= 100:
+                        del controller.user_states[chat_id]
+                        return await update.message.reply_text("❌ 밴드%는 1~99 사이여야 합니다. (입력 취소됨)")
+                    vr_cfg = self.cfg.get_vr_config(ticker)
+                    vr_cfg['band_pct'] = round(val, 1)
+                    self.cfg.set_vr_config(ticker, vr_cfg)
+                    del controller.user_states[chat_id]
+                    return await update.message.reply_text(
+                        f"✅ <b>[VR5] {ticker} 밴드 ±{val:.1f}% 설정 완료</b>", parse_mode='HTML'
+                    )
+
+                elif state.startswith("VR_UPDATE_V_"):
+                    ticker = state[len("VR_UPDATE_V_"):]
+                    vr_cfg = self.cfg.get_vr_config(ticker)
+                    # deposit은 음수도 허용
+                    deposit = round(val, 2)
+                    next_v = vr_engine.calc_next_v(vr_cfg, deposit=deposit)
+                    # 확인 화면 띄우기
+                    msg, markup = self.view.get_vr_update_confirm(ticker, vr_cfg, vr_engine, deposit=deposit)
+                    del controller.user_states[chat_id]
+                    return await update.message.reply_text(msg, reply_markup=markup, parse_mode='HTML')
+
+                del controller.user_states[chat_id]
                 return
 
             # 🚨 [V29.00 NEW] 사용자 조기 퇴근 목표 수익률 텍스트 입력 라우터

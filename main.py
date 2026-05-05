@@ -47,8 +47,9 @@ from scheduler_trade import (
     scheduled_regular_trade,
     scheduled_sniper_monitor,
     scheduled_vwap_trade,
-    scheduled_vwap_init_and_cancel,  
-    scheduled_after_market_lottery  
+    scheduled_vwap_init_and_cancel,
+    scheduled_after_market_lottery,
+    scheduled_vr_check,
 )
 
 TICKER_BASE_MAP = {
@@ -226,10 +227,10 @@ def main():
     app.bot_data['bot_controller'] = bot
     
     for cmd, handler in [
-        ("start", bot.cmd_start), ("record", bot.cmd_record), ("history", bot.cmd_history), 
-        ("sync", bot.cmd_sync), ("settlement", bot.cmd_settlement), ("seed", bot.cmd_seed), 
-        ("ticker", bot.cmd_ticker), ("mode", bot.cmd_mode), ("reset", bot.cmd_reset), 
-        ("version", bot.cmd_version), ("update", bot.cmd_update)
+        ("start", bot.cmd_start), ("record", bot.cmd_record), ("history", bot.cmd_history),
+        ("sync", bot.cmd_sync), ("settlement", bot.cmd_settlement), ("seed", bot.cmd_seed),
+        ("ticker", bot.cmd_ticker), ("mode", bot.cmd_mode), ("reset", bot.cmd_reset),
+        ("version", bot.cmd_version), ("update", bot.cmd_update), ("vr", bot.cmd_vr),
     ]:
         app.add_handler(CommandHandler(cmd, handler))
         
@@ -272,6 +273,9 @@ def main():
     jq.run_daily(scheduled_after_market_lottery, time=datetime.time(16, 5, tzinfo=est), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
 
     jq.run_daily(scheduled_self_cleaning, time=datetime.time(6, 0, tzinfo=kst), days=tuple(range(7)), chat_id=ADMIN_CHAT_ID, data=app_data)
+
+    # 3. VR5 밸류리밸런싱 주간 체크 (월요일 9:40 EST)
+    jq.run_daily(scheduled_vr_check, time=datetime.time(9, 40, tzinfo=est), days=(1,), chat_id=ADMIN_CHAT_ID, data=app_data)
         
     app.run_polling()
 

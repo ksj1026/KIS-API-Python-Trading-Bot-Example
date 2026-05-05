@@ -60,7 +60,8 @@ class ConfigManager:
             "MANUAL_VWAP_CFG": "data/manual_vwap_config.json",
             "FEE_CFG": "data/fee_config.json", # NEW: 동적 수수료 저장소 추가
             "AVWAP_EARLY_EXIT_CFG": "data/avwap_early_exit.json",    # 🚨 [V28.50] 조기 퇴근 듀얼 모드 스위치
-            "AVWAP_EARLY_TARGET_CFG": "data/avwap_early_target.json" # 🚨 [V28.50] 조기 퇴근 목표 수익률 저장소
+            "AVWAP_EARLY_TARGET_CFG": "data/avwap_early_target.json", # 🚨 [V28.50] 조기 퇴근 목표 수익률 저장소
+            "VR_CFG": "data/vr_config.json"  # NEW: VR5 밸류리밸런싱 설정 저장소
         }
         
         self.DEFAULT_SEED = {"SOXL": 6720.0, "TQQQ": 6720.0}
@@ -724,6 +725,36 @@ class ConfigManager:
         d = self._load_json(self.FILES["AVWAP_EARLY_TARGET_CFG"], {})
         d[ticker] = float(v)
         self._save_json(self.FILES["AVWAP_EARLY_TARGET_CFG"], d)
+    # ==========================================================
+
+    # ==========================================================
+    # NEW: VR5 밸류리밸런싱 설정 Getter/Setter
+    # ==========================================================
+    def get_vr_config(self, ticker):
+        """VR5 설정 조회. 없으면 기본값 반환."""
+        defaults = {
+            "enabled": False,
+            "v_value": 0.0,
+            "pool": 0.0,
+            "g_factor": 10,
+            "band_pct": 15,
+            "last_v_update": "",
+            "v_update_weeks": 2,
+            "mode": "ACCUM"
+        }
+        saved = self._load_json(self.FILES["VR_CFG"], {}).get(ticker, {})
+        return {**defaults, **saved}
+
+    def set_vr_config(self, ticker, cfg_data):
+        """VR5 설정 저장."""
+        d = self._load_json(self.FILES["VR_CFG"], {})
+        d[ticker] = cfg_data
+        self._save_json(self.FILES["VR_CFG"], d)
+
+    def get_vr_tickers(self):
+        """VR5 활성화된 티커 목록 반환."""
+        d = self._load_json(self.FILES["VR_CFG"], {})
+        return [t for t, v in d.items() if v.get('enabled')]
     # ==========================================================
 
     def get_secret_mode(self): return self._load_file(self.FILES["SECRET_MODE"]) == 'True'

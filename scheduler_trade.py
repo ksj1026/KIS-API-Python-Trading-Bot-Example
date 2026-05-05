@@ -1054,3 +1054,110 @@ async def scheduled_after_market_lottery(context):
         await asyncio.wait_for(_do_lottery(), timeout=60.0)
     except Exception as e:
         logging.error(f"🚨 애프터마켓 로터리 덫 에러: {e}", exc_info=True)
+
+# ==========================================================
+# 6. 📊 VR5 밸류리밸런싱 주간 체크 (월요일 9:40 EST)
+# ==========================================================
+async def scheduled_vr_check(context):
+    """VR5 밸류리밸런싱 밴드 체크 및 지정가 자동 실행"""
+    if not is_market_open():
+        return
+
+    app_data = context.job.data
+    cfg, broker, tx_lock = app_data['cfg'], app_data['broker'], app_data['tx_lock']
+    chat_id = context.job.chat_id
+
+    vr_tickers = cfg.get_vr_tickers()
+    if not vr_tickers:
+        return
+
+    from strategy_vr import VRStrategy
+    vr_engine = VRStrategy()
+
+    async def _do_vr():
+        async with tx_lock:
+            cash, holdings = await asyncio.to_thread(broker.get_account_balance)
+            safe_holdings = holdings if isinstance(holdings, dict) else {}
+
+            for ticker in vr_tickers:
+                vr_cfg = cfg.get_vr_config(ticker)
+                if not vr_cfg.get('enabled'):
+                    continue
+
+                curr_p = float(await asyncio.to_thread(broker.get_current_price, ticker) or 0.0)
+                if curr_p <= 0:
+                    await context.bot.send_message(
+                        chat_id=chat_id,
+                        text=f"⚠️ <b>[VR5] {ticker}</b> 현재가 조회 실패 — 이번 체크 스킵",
+                        parse_mode='HTML'
+                    )
+                    continue
+
+                h = safe_holdings.get(ticker) or {}
+                qty = int(float(h.get('qty', 0)))
+
+                decision = vr_engine.get_decision(ticker, curr_p, qty, vr_cfg)
+                action = decision.get('action')
+                portfolio = decision.get('portfolio', 0)
+                v = decision.get('v', 0)
+                low = decision.get('low_target', 0)
+                high = decision.get('high_target', 0)
+
+                # V 업데이트 도달 여부
+                needs_update = vr_engine.should_update_v(vr_cfg)
+                weeks_since = vr_engine.weeks_since_v_update(vr_cfg)
+
+                status_icon = '🟡 매수 신호' if action == 'BUY' else ('🔴 매도 신호' if action == 'SELL' else '🟢 정상')
+                msg = (
+                    f"📊 <b>[VR5] {ticker} 주간 리밸런싱 체크</b>\n"
+                    f"▫️ V 타겟: <b>${v:,.0f}</b>\n"
+                    f"▫️ 밴드: ${low:,.0f} ~ ${high:,.0f}\n"
+                    f"▫️ 포트폴리오: ${portfolio:,.0f} ({qty}주 × ${curr_p:.2f})\n"
+                    f"▫️ 상태: {status_icon}"
+                )
+
+                if needs_update:
+                    next_v = vr_engine.calc_next_v(vr_cfg)
+                    msg += (
+                        f"\n\n⏰ <b>V 업데이트 시점 도래!</b>\n"
+                        f"▫️ 마지막 업데이트: {vr_cfg.get('last_v_update', '-')} ({weeks_since}주 전)\n"
+                        f"▫️ 예상 다음 V: <b>${next_v:,.0f}</b>\n"
+                        f"▫️ /vr 커맨드로 V 업데이트를 진행하세요."
+                    )
+
+                await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
+
+                # 밴드 이탈 시 지정가 자동 실행
+                if action in ('BUY', 'SELL') and decision.get('qty', 0) > 0:
+                    order_qty = decision['qty']
+
+                    if action == 'BUY':
+                        exec_price = float(await asyncio.to_thread(broker.get_ask_price, ticker) or curr_p)
+                    else:
+                        exec_price = float(await asyncio.to_thread(broker.get_bid_price, ticker) or curr_p)
+
+                    if exec_price <= 0:
+                        exec_price = curr_p
+
+                    res = broker.send_order(ticker, action, order_qty, exec_price, "LIMIT")
+                    if res.get('rt_cd') == '0':
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=(
+                                f"✅ <b>[VR5] {ticker} {action} 주문 실행!</b>\n"
+                                f"▫️ {order_qty}주 × ${exec_price:.2f}\n"
+                                f"▫️ 사유: {decision.get('reason', '')}"
+                            ),
+                            parse_mode='HTML'
+                        )
+                    else:
+                        await context.bot.send_message(
+                            chat_id=chat_id,
+                            text=f"❌ <b>[VR5] {ticker} 주문 실패:</b> {res.get('msg1', '에러')}",
+                            parse_mode='HTML'
+                        )
+
+    try:
+        await asyncio.wait_for(_do_vr(), timeout=120.0)
+    except Exception as e:
+        logging.error(f"🚨 VR5 주간 체크 에러: {e}", exc_info=True)
