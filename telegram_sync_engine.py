@@ -174,12 +174,29 @@ class TelegramSyncEngine:
                         gap_qty = actual_qty - temp_sim_qty
                         if gap_qty != 0:
                             calib_side = "BUY" if gap_qty > 0 else "SELL"
+
+                            # 🚨 [BUGFIX] SELL CALIB 시 actual_qty=0이면 KIS는 actual_avg=0을 반환함.
+                            # price=0인 SELL 레코드가 기록되면 archive_graduation에서 매도 수익이 $0으로
+                            # 집계되어 전액 손실(-매수총액)로 오산출되는 치명적 버그를 방어.
+                            # 체결 내역(target_execs)에서 실제 매도 평균가를 역산하고, 없으면 매수 평단가로 폴백.
+                            if calib_side == "SELL" and actual_avg == 0:
+                                sell_execs = [ex for ex in (target_execs or []) if ex.get('sll_buy_dvsn_cd') == '01']
+                                if sell_execs:
+                                    _sq = sum(float(ex.get('ft_ccld_qty', '0')) for ex in sell_execs)
+                                    _sa = sum(float(ex.get('ft_ccld_qty', '0')) * float(ex.get('ft_ccld_unpr3', '0')) for ex in sell_execs)
+                                    calib_price = round(_sa / _sq, 4) if _sq > 0 else temp_sim_avg
+                                else:
+                                    calib_price = temp_sim_avg  # 폴백: 매수 평단가 (손익 ≈ 0 방어)
+                                    logging.warning(f"⚠️ [{ticker}] SELL CALIB 체결가 확인 불가. 매수 평단가(${temp_sim_avg:.2f})로 폴백 — 졸업 수익 수동 확인 필요.")
+                            else:
+                                calib_price = actual_avg
+
                             new_target_records.append({
-                                'date': target_ledger_str, 
+                                'date': target_ledger_str,
                                 'side': calib_side,
-                                'qty': abs(gap_qty), 
-                                'price': actual_avg, 
-                                'avg_price': actual_avg,
+                                'qty': abs(gap_qty),
+                                'price': calib_price,
+                                'avg_price': calib_price if calib_side == "SELL" else actual_avg,
                                 'exec_id': f"CALIB_{int(time.time())}",
                                 'desc': "비파괴 보정"
                             })
