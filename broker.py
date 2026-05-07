@@ -48,18 +48,27 @@ class KoreaInvestmentBroker:
 
     def _get_access_token(self, force=False):
         kst = pytz.timezone('Asia/Seoul')
-        
+
         if not force and os.path.exists(self.token_file):
             try:
                 with open(self.token_file, 'r') as f:
                     saved = json.load(f)
                 expire_time = datetime.datetime.strptime(saved['expire'], '%Y-%m-%d %H:%M:%S')
                 now_kst_naive = datetime.datetime.now(kst).replace(tzinfo=None)
-                
+
                 if expire_time > now_kst_naive + datetime.timedelta(hours=1):
                     self.token = saved['token']
                     return
-            except Exception: pass
+                else:
+                    # 🚨 [BUGFIX] force=False여도 토큰이 만료(1시간 이내)된 경우
+                    # 기존 파일을 삭제하지 않으면 만료 토큰이 재사용되는 버그 수정
+                    logging.warning("⚠️ [Broker] 저장된 토큰이 1시간 이내 만료 예정. 파일 삭제 후 재발급합니다.")
+                    try: os.remove(self.token_file)
+                    except Exception: pass
+            except Exception:
+                # 파일 파싱 자체가 실패한 경우 오염된 파일 삭제
+                try: os.remove(self.token_file)
+                except Exception: pass
 
         if force and os.path.exists(self.token_file):
             try: os.remove(self.token_file)
@@ -107,9 +116,11 @@ class KoreaInvestmentBroker:
         }
 
     def _api_request(self, method, url, headers, params=None, data=None):
+        # 🚨 [BUGFIX] '인증', 'authorization' 같은 광범위한 단어를 제거하고
+        # KIS API 공식 토큰 만료 에러코드/메시지로 정밀화하여 오탐 차단
         TOKEN_EXPIRY_KEYWORDS = frozenset([
-            'expired', '인증', 'authorization', 'egt0001', 'egt0002', 'oauth', 
-            '접근토큰이 만료', '토큰이 유효하지'
+            'egt0001', 'egt0002', 'egw0002',
+            'access token', '접근토큰이 만료', '토큰이 유효하지', 'token expired',
         ])
         
         for attempt in range(2): 
