@@ -974,13 +974,59 @@ class TelegramCallbacks:
                         if action_vr == 'BUY'
                         else float(await asyncio.to_thread(self.broker.get_bid_price, ticker) or curr_p)
                     )
-                    res = self.broker.send_order(ticker, action_vr, order_qty, exec_price, "LIMIT")
-                    if res.get('rt_cd') == '0':
-                        result_msg += f"\n\n✅ <b>{action_vr} {order_qty}주 @ ${exec_price:.2f} 주문 완료!</b>"
-                    else:
-                        result_msg += f"\n\n❌ 주문 실패: {res.get('msg1', '에러')}"
+                    if exec_price <= 0:
+                        exec_price = curr_p
 
+                    # 확인 단계: 즉시 실행 대신 확인 버튼 표시
+                    side_icon = '🟡 매수' if action_vr == 'BUY' else '🔴 매도'
+                    confirm_msg = (
+                        f"{result_msg}\n\n"
+                        f"━━━━━━━━━━━━━━━━━━━\n"
+                        f"📋 <b>주문 확인</b>\n"
+                        f"▫️ 방향: <b>{side_icon}</b>\n"
+                        f"▫️ 수량: <b>{order_qty}주</b>\n"
+                        f"▫️ 가격: <b>${exec_price:.2f}</b> (지정가)\n"
+                        f"▫️ 예상 금액: <b>${order_qty * exec_price:,.0f}</b>\n\n"
+                        f"주문을 실행하시겠습니까?"
+                    )
+                    confirm_markup = InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton("✅ 주문 실행", callback_data=f"VR:EXEC_ORDER:{ticker}:{action_vr}:{order_qty}:{exec_price}"),
+                            InlineKeyboardButton("❌ 취소", callback_data=f"VR:SETTINGS:{ticker}"),
+                        ]
+                    ])
+                    await query.edit_message_text(confirm_msg, reply_markup=confirm_markup, parse_mode='HTML')
+                else:
+                    # HOLD 상태 — 설정 화면으로 돌아가기
+                    vr_cfg_refresh = self.cfg.get_vr_config(ticker)
+                    settings_msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg_refresh, vr_engine)
+                    await query.edit_message_text(result_msg + "\n\n" + settings_msg, reply_markup=markup, parse_mode='HTML')
+
+            elif sub == "EXEC_ORDER":
+                ticker = data[2] if len(data) > 2 else ""
+                action_vr = data[3] if len(data) > 3 else ""
+                order_qty = int(data[4]) if len(data) > 4 else 0
+                exec_price = float(data[5]) if len(data) > 5 else 0.0
+
+                if not ticker or action_vr not in ('BUY', 'SELL') or order_qty <= 0 or exec_price <= 0:
+                    await query.answer("주문 정보가 올바르지 않습니다.", show_alert=True)
+                    return
+
+                res = self.broker.send_order(ticker, action_vr, order_qty, exec_price, "LIMIT")
                 vr_cfg_refresh = self.cfg.get_vr_config(ticker)
                 settings_msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg_refresh, vr_engine)
-                await query.edit_message_text(result_msg + "\n\n" + settings_msg, reply_markup=markup, parse_mode='HTML')
+
+                if res.get('rt_cd') == '0':
+                    result_msg = (
+                        f"✅ <b>[VR5] {ticker} {action_vr} 주문 완료!</b>\n"
+                        f"▫️ {order_qty}주 × ${exec_price:.2f}\n"
+                        f"▫️ 예상 금액: ${order_qty * exec_price:,.0f}\n\n"
+                        f"{settings_msg}"
+                    )
+                else:
+                    result_msg = (
+                        f"❌ <b>[VR5] {ticker} 주문 실패:</b> {res.get('msg1', '에러')}\n\n"
+                        f"{settings_msg}"
+                    )
+                await query.edit_message_text(result_msg, reply_markup=markup, parse_mode='HTML')
         # ==========================================================
