@@ -838,6 +838,23 @@ class TelegramCallbacks:
             elif sub == "SETTINGS":
                 ticker = data[2] if len(data) > 2 else ""
                 vr_cfg = self.cfg.get_vr_config(ticker)
+
+                # V값 미설정 시 현재 포트폴리오 가치(보유수량 × 현재가)로 자동 계산
+                if vr_cfg.get('v_value', 0) <= 0:
+                    curr_p = float(await asyncio.to_thread(self.broker.get_current_price, ticker) or 0.0)
+                    _, holdings = await asyncio.to_thread(self.broker.get_account_balance)
+                    h = (holdings or {}).get(ticker) or {}
+                    qty = int(float(h.get('qty', 0)))
+
+                    if curr_p > 0 and qty > 0:
+                        auto_v = round(curr_p * qty, 2)
+                        vr_cfg['v_value'] = auto_v
+                        if not vr_cfg.get('last_v_update'):
+                            import datetime as _dt
+                            vr_cfg['last_v_update'] = _dt.date.today().isoformat()
+                        self.cfg.set_vr_config(ticker, vr_cfg)
+                        await query.answer(f"V값 자동 설정: ${auto_v:,.0f} ({qty}주 × ${curr_p:.2f})", show_alert=False)
+
                 msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine)
                 await query.edit_message_text(msg, reply_markup=markup, parse_mode='HTML')
 
