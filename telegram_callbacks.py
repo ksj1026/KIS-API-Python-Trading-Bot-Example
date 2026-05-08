@@ -890,23 +890,41 @@ class TelegramCallbacks:
                     parse_mode='HTML'
                 )
 
+            elif sub == "SET_DEPOSIT":
+                ticker = data[2] if len(data) > 2 else ""
+                vr_cfg = self.cfg.get_vr_config(ticker)
+                current = float(vr_cfg.get('deposit', 0))
+                controller.user_states[chat_id] = f"VR_SET_DEPOSIT_{ticker}"
+                await query.edit_message_text(
+                    f"💵 <b>[VR5] {ticker} 정기 적립금 설정</b>\n"
+                    f"현재: <b>${current:,.0f}</b>\n\n"
+                    f"V 업데이트 시마다 자동으로 더해질 정기 적립금(USD)을 입력하세요.\n"
+                    f"예: <code>500</code> (매월 $500 적립 시)",
+                    parse_mode='HTML'
+                )
+
             elif sub == "UPDATE_V":
                 ticker = data[2] if len(data) > 2 else ""
                 vr_cfg = self.cfg.get_vr_config(ticker)
+                regular_deposit = float(vr_cfg.get('deposit', 0))
                 controller.user_states[chat_id] = f"VR_UPDATE_V_{ticker}"
+                hint = f"정기 적립금 ${regular_deposit:,.0f}이 자동 반영됩니다.\n" if regular_deposit > 0 else ""
                 await query.edit_message_text(
                     f"🔄 <b>[VR5] {ticker} V 업데이트</b>\n"
-                    f"이번 주기 입금(+) 또는 출금(-) 금액을 입력하세요.\n"
-                    f"추가 입금/출금이 없으면 <code>0</code>을 입력하세요.",
+                    f"{hint}"
+                    f"이번 주기 <b>추가</b> 입금(+) 또는 출금(-) 금액을 입력하세요.\n"
+                    f"없으면 <code>0</code>을 입력하세요.",
                     parse_mode='HTML'
                 )
 
             elif sub == "CONFIRM_V":
                 ticker = data[2] if len(data) > 2 else ""
-                deposit = float(data[3]) if len(data) > 3 else 0.0
+                extra_deposit = float(data[3]) if len(data) > 3 else 0.0
                 vr_cfg = self.cfg.get_vr_config(ticker)
                 v1 = float(vr_cfg.get('v_value', 0))
-                new_v = vr_engine.calc_next_v(vr_cfg, deposit=deposit)
+                regular_deposit = float(vr_cfg.get('deposit', 0))
+                total_deposit = regular_deposit + extra_deposit
+                new_v = vr_engine.calc_next_v(vr_cfg, deposit=total_deposit)
                 vr_cfg['v_value'] = new_v
                 vr_cfg['last_v_update'] = datetime.date.today().isoformat()
                 self.cfg.set_vr_config(ticker, vr_cfg)

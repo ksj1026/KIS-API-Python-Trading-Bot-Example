@@ -740,7 +740,8 @@ class ConfigManager:
             "band_pct": 15,
             "last_v_update": "",
             "v_update_weeks": 2,
-            "mode": "ACCUM"
+            "mode": "ACCUM",
+            "deposit": 0.0,   # 정기 적립금 (V 업데이트 시 자동 반영)
         }
         saved = self._load_json(self.FILES["VR_CFG"], {}).get(ticker, {})
         return {**defaults, **saved}

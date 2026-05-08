@@ -830,12 +830,15 @@ class TelegramView:
         update_badge = " ⚠️" if needs_update else ""
 
         v_label = f"<b>${v:,.0f}</b> (자동계산)" if v > 0 else "<i>미설정 → 설정 진입 시 현재 포트폴리오 가치로 자동 계산됩니다.</i>"
+        deposit = float(vr_cfg.get('deposit', 0))
+        deposit_label = f"${deposit:,.0f}" if deposit > 0 else "미설정"
         msg = (
             f"⚙️ <b>[ VR5 {ticker} 설정 ]</b>\n\n"
             f"▫️ 현재 V: {v_label}\n"
             f"▫️ 풀(Pool): <b>${pool:,.0f}</b>\n"
             f"▫️ G 계수: <b>{g}</b> (적립식=10)\n"
             f"▫️ 밴드: ±<b>{band_pct:.0f}%</b>\n"
+            f"▫️ 정기 적립금: <b>{deposit_label}</b> (V 업데이트 시 자동 반영)\n"
             f"▫️ 마지막 V업데이트: {vr_cfg.get('last_v_update', '미설정')}{update_badge}\n"
             f"▫️ 다음 V (예상): <b>${next_v:,.0f}</b>\n"
         )
@@ -845,31 +848,38 @@ class TelegramView:
              InlineKeyboardButton("🏦 풀 설정", callback_data=f"VR:SET_POOL:{ticker}")],
             [InlineKeyboardButton("📐 G계수 설정", callback_data=f"VR:SET_G:{ticker}"),
              InlineKeyboardButton("📏 밴드% 설정", callback_data=f"VR:SET_BAND:{ticker}")],
+            [InlineKeyboardButton("💵 정기 적립금 설정", callback_data=f"VR:SET_DEPOSIT:{ticker}")],
             [InlineKeyboardButton(f"🔄 V 업데이트{update_badge}", callback_data=f"VR:UPDATE_V:{ticker}")],
             [InlineKeyboardButton("🔍 밴드 체크 & 주문", callback_data=f"VR:CHECK:{ticker}")],
             [InlineKeyboardButton("◀️ 돌아가기", callback_data="VR:MAIN")],
         ]
         return msg, InlineKeyboardMarkup(keyboard)
 
-    def get_vr_update_confirm(self, ticker, vr_cfg, vr_engine, deposit=0.0):
+    def get_vr_update_confirm(self, ticker, vr_cfg, vr_engine, extra_deposit=0.0):
         """V 업데이트 확인 화면"""
         v1 = float(vr_cfg.get('v_value', 0))
-        next_v = vr_engine.calc_next_v(vr_cfg, deposit=deposit)
         pool = float(vr_cfg.get('pool', 0))
         g = int(vr_cfg.get('g_factor', 10))
+        regular_deposit = float(vr_cfg.get('deposit', 0))
+        total_deposit = regular_deposit + extra_deposit
+        next_v = vr_engine.calc_next_v(vr_cfg, deposit=total_deposit)
         increment = pool / g if g > 0 else 0.0
 
         msg = (
             f"🔄 <b>[ VR5 {ticker} V 업데이트 확인 ]</b>\n\n"
             f"▫️ 현재 V: <b>${v1:,.0f}</b>\n"
             f"▫️ Pool/G: ${pool:,.0f} / {g} = <b>+${increment:,.0f}</b>\n"
-            f"▫️ 입금/출금: <b>${deposit:+,.0f}</b>\n"
+            f"▫️ 정기 적립금: <b>${regular_deposit:+,.0f}</b>\n"
+        )
+        if extra_deposit != 0:
+            msg += f"▫️ 추가 입금/출금: <b>${extra_deposit:+,.0f}</b>\n"
+        msg += (
             f"━━━━━━━━━━━━━━━━━━━\n"
             f"▫️ 새 V: <b>${next_v:,.0f}</b>\n\n"
             f"V 업데이트를 확정하시겠습니까?"
         )
         keyboard = [
-            [InlineKeyboardButton("✅ 확정", callback_data=f"VR:CONFIRM_V:{ticker}:{deposit}"),
+            [InlineKeyboardButton("✅ 확정", callback_data=f"VR:CONFIRM_V:{ticker}:{extra_deposit}"),
              InlineKeyboardButton("❌ 취소", callback_data=f"VR:SETTINGS:{ticker}")],
         ]
         return msg, InlineKeyboardMarkup(keyboard)

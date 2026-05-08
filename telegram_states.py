@@ -193,6 +193,20 @@ class TelegramStates:
                         f"✅ <b>[VR5] {ticker} 밴드 ±{val:.1f}% 설정 완료</b>", parse_mode='HTML'
                     )
 
+                elif state.startswith("VR_SET_DEPOSIT_"):
+                    ticker = state[len("VR_SET_DEPOSIT_"):]
+                    if val < 0:
+                        del controller.user_states[chat_id]
+                        return await update.message.reply_text("❌ 적립금은 0 이상이어야 합니다. (입력 취소됨)")
+                    vr_cfg = self.cfg.get_vr_config(ticker)
+                    vr_cfg['deposit'] = round(val, 2)
+                    self.cfg.set_vr_config(ticker, vr_cfg)
+                    del controller.user_states[chat_id]
+                    return await update.message.reply_text(
+                        f"✅ <b>[VR5] {ticker} 정기 적립금 ${val:,.0f} 설정 완료</b>\n"
+                        f"▫️ 다음 V 업데이트 시 자동으로 반영됩니다.", parse_mode='HTML'
+                    )
+
                 elif state.startswith("VR_UPDATE_V_"):
                     ticker = state[len("VR_UPDATE_V_"):]
                     vr_cfg = self.cfg.get_vr_config(ticker)
