@@ -742,6 +742,7 @@ class ConfigManager:
             "v_update_weeks": 2,
             "mode": "ACCUM",
             "deposit": 0.0,   # 정기 적립금 (V 업데이트 시 자동 반영)
+            "start_date": "",  # VR 최초 시작일자
         }
         saved = self._load_json(self.FILES["VR_CFG"], {}).get(ticker, {})
         return {**defaults, **saved}

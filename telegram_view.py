@@ -832,8 +832,11 @@ class TelegramView:
         v_label = f"<b>${v:,.0f}</b> (자동계산)" if v > 0 else "<i>미설정 → 설정 진입 시 현재 포트폴리오 가치로 자동 계산됩니다.</i>"
         deposit = float(vr_cfg.get('deposit', 0))
         deposit_label = f"${deposit:,.0f}" if deposit > 0 else "미설정"
+        start_date = vr_cfg.get('start_date', '')
+        start_label = start_date if start_date else "미설정"
         msg = (
             f"⚙️ <b>[ VR5 {ticker} 설정 ]</b>\n\n"
+            f"▫️ 시작일자: <b>{start_label}</b>\n"
             f"▫️ 현재 V: {v_label}\n"
             f"▫️ 풀(Pool): <b>${pool:,.0f}</b>\n"
             f"▫️ G 계수: <b>{g}</b> (적립식=10)\n"

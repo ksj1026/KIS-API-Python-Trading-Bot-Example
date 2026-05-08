@@ -144,9 +144,12 @@ class TelegramStates:
                     if val <= 0:
                         del controller.user_states[chat_id]
                         return await update.message.reply_text("❌ V값은 0보다 커야 합니다. (입력 취소됨)")
+                    today_str = datetime.date.today().isoformat()
                     vr_cfg['v_value'] = round(val, 2)
                     if not vr_cfg.get('last_v_update'):
-                        vr_cfg['last_v_update'] = datetime.date.today().isoformat()
+                        vr_cfg['last_v_update'] = today_str
+                    if not vr_cfg.get('start_date'):
+                        vr_cfg['start_date'] = today_str
                     self.cfg.set_vr_config(ticker, vr_cfg)
                     del controller.user_states[chat_id]
                     return await update.message.reply_text(

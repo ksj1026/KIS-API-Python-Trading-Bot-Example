@@ -848,10 +848,12 @@ class TelegramCallbacks:
 
                     if curr_p > 0 and qty > 0:
                         auto_v = round(curr_p * qty, 2)
+                        today_str = datetime.date.today().isoformat()
                         vr_cfg['v_value'] = auto_v
                         if not vr_cfg.get('last_v_update'):
-                            import datetime as _dt
-                            vr_cfg['last_v_update'] = _dt.date.today().isoformat()
+                            vr_cfg['last_v_update'] = today_str
+                        if not vr_cfg.get('start_date'):
+                            vr_cfg['start_date'] = today_str
                         self.cfg.set_vr_config(ticker, vr_cfg)
                         await query.answer(f"V값 자동 설정: ${auto_v:,.0f} ({qty}주 × ${curr_p:.2f})", show_alert=False)
 
