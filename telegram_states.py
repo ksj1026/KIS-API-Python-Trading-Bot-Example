@@ -129,6 +129,52 @@ class TelegramStates:
                 return
 
             # NEW: VR5 밸류리밸런싱 텍스트 입력 라우터
+            if state.startswith("VR_INIT_QTY_"):
+                ticker = state[len("VR_INIT_QTY_"):]
+                try:
+                    qty = int(float(text))
+                except ValueError:
+                    del controller.user_states[chat_id]
+                    return await update.message.reply_text("❌ 정수(주)로 입력하세요. (입력 취소됨)")
+                if qty < 0:
+                    del controller.user_states[chat_id]
+                    return await update.message.reply_text("❌ 수량은 0 이상이어야 합니다. (입력 취소됨)")
+                if qty == 0:
+                    # 보유 없음 → V 직접 입력으로 전환
+                    controller.user_states[chat_id] = f"VR_SET_V_{ticker}"
+                    return await update.message.reply_text(
+                        f"📌 보유 수량이 0이므로 목표 V값을 직접 입력해주세요.\n"
+                        f"투자할 목표 포트폴리오 가치(USD)를 입력하세요.\n예: <code>10000</code>",
+                        parse_mode='HTML'
+                    )
+                controller.user_states[chat_id] = f"VR_INIT_PRICE_{ticker}_{qty}"
+                return await update.message.reply_text(
+                    f"🚀 <b>[VR5] {ticker} 초기 설정 — 2/2단계</b>\n\n"
+                    f"보유 수량: <b>{qty}주</b>\n"
+                    f"평균 매수 단가(USD)를 입력하세요.\n\n"
+                    f"예: <code>65.50</code>",
+                    parse_mode='HTML'
+                )
+
+            if state.startswith("VR_INIT_PRICE_"):
+                # state: VR_INIT_PRICE_{ticker}_{qty}  (ticker는 _없는 US 티커)
+                rest = state[len("VR_INIT_PRICE_"):]
+                last_under = rest.rfind("_")
+                ticker = rest[:last_under]
+                qty = int(rest[last_under + 1:])
+                try:
+                    avg_price = float(text)
+                except ValueError:
+                    del controller.user_states[chat_id]
+                    return await update.message.reply_text("❌ 숫자로 입력하세요. (입력 취소됨)")
+                if avg_price <= 0:
+                    del controller.user_states[chat_id]
+                    return await update.message.reply_text("❌ 평단가는 0보다 커야 합니다. (입력 취소됨)")
+                from strategy_vr import VRStrategy
+                msg, markup = self.view.get_vr_init_confirm(ticker, qty, avg_price)
+                del controller.user_states[chat_id]
+                return await update.message.reply_text(msg, reply_markup=markup, parse_mode='HTML')
+
             if state.startswith("VR_SET_") or state.startswith("VR_UPDATE_V_"):
                 from strategy_vr import VRStrategy
                 vr_engine = VRStrategy()

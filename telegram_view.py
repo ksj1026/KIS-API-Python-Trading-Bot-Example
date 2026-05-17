@@ -846,7 +846,10 @@ class TelegramView:
             f"▫️ 다음 V (예상): <b>${next_v:,.0f}</b>\n"
         )
 
-        keyboard = [
+        keyboard = []
+        if v <= 0:
+            keyboard.append([InlineKeyboardButton("🚀 초기 설정 (수량 · 평단가 입력)", callback_data=f"VR:INIT_START:{ticker}")])
+        keyboard += [
             [InlineKeyboardButton("💰 V값 수동 입력", callback_data=f"VR:SET_V:{ticker}"),
              InlineKeyboardButton("🏦 풀 설정", callback_data=f"VR:SET_POOL:{ticker}")],
             [InlineKeyboardButton("📐 G계수 설정", callback_data=f"VR:SET_G:{ticker}"),
@@ -855,6 +858,23 @@ class TelegramView:
             [InlineKeyboardButton(f"🔄 V 업데이트{update_badge}", callback_data=f"VR:UPDATE_V:{ticker}")],
             [InlineKeyboardButton("🔍 밴드 체크 & 주문", callback_data=f"VR:CHECK:{ticker}")],
             [InlineKeyboardButton("◀️ 돌아가기", callback_data="VR:MAIN")],
+        ]
+        return msg, InlineKeyboardMarkup(keyboard)
+
+    def get_vr_init_confirm(self, ticker, qty, avg_price):
+        """VR 초기 설정 확인 화면 (수량 × 평단가 → V)"""
+        v = round(qty * avg_price, 2)
+        msg = (
+            f"🚀 <b>[ VR5 {ticker} 초기 설정 확인 ]</b>\n\n"
+            f"▫️ 보유 수량: <b>{qty}주</b>\n"
+            f"▫️ 평균 단가: <b>${avg_price:.2f}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"▫️ 초기 V (수량 × 평단가): <b>${v:,.2f}</b>\n\n"
+            f"이 설정으로 VR을 시작하시겠습니까?"
+        )
+        keyboard = [
+            [InlineKeyboardButton("✅ 시작", callback_data=f"VR:INIT_CONFIRM:{ticker}:{qty}:{avg_price}"),
+             InlineKeyboardButton("❌ 취소", callback_data=f"VR:SETTINGS:{ticker}")],
         ]
         return msg, InlineKeyboardMarkup(keyboard)
 

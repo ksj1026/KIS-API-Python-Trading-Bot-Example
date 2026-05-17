@@ -838,27 +838,41 @@ class TelegramCallbacks:
             elif sub == "SETTINGS":
                 ticker = data[2] if len(data) > 2 else ""
                 vr_cfg = self.cfg.get_vr_config(ticker)
-
-                # V값 미설정 시 현재 포트폴리오 가치(보유수량 × 현재가)로 자동 계산
-                if vr_cfg.get('v_value', 0) <= 0:
-                    curr_p = float(await asyncio.to_thread(self.broker.get_current_price, ticker) or 0.0)
-                    _, holdings = await asyncio.to_thread(self.broker.get_account_balance)
-                    h = (holdings or {}).get(ticker) or {}
-                    qty = int(float(h.get('qty', 0)))
-
-                    if curr_p > 0 and qty > 0:
-                        auto_v = round(curr_p * qty, 2)
-                        today_str = datetime.date.today().isoformat()
-                        vr_cfg['v_value'] = auto_v
-                        if not vr_cfg.get('last_v_update'):
-                            vr_cfg['last_v_update'] = today_str
-                        if not vr_cfg.get('start_date'):
-                            vr_cfg['start_date'] = today_str
-                        self.cfg.set_vr_config(ticker, vr_cfg)
-                        await query.answer(f"V값 자동 설정: ${auto_v:,.0f} ({qty}주 × ${curr_p:.2f})", show_alert=False)
-
                 msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine)
                 await query.edit_message_text(msg, reply_markup=markup, parse_mode='HTML')
+
+            elif sub == "INIT_START":
+                ticker = data[2] if len(data) > 2 else ""
+                controller.user_states[chat_id] = f"VR_INIT_QTY_{ticker}"
+                await query.edit_message_text(
+                    f"🚀 <b>[VR5] {ticker} 초기 설정 — 1/2단계</b>\n\n"
+                    f"현재 보유 중인 <b>{ticker} 수량</b>을 입력하세요.\n"
+                    f"(아직 매수 전이라면 <code>0</code>)\n\n"
+                    f"예: <code>50</code>",
+                    parse_mode='HTML'
+                )
+
+            elif sub == "INIT_CONFIRM":
+                ticker = data[2] if len(data) > 2 else ""
+                qty = int(data[3]) if len(data) > 3 else 0
+                avg_price = float(data[4]) if len(data) > 4 else 0.0
+                v_value = round(qty * avg_price, 2)
+                today_str = datetime.date.today().isoformat()
+                vr_cfg = self.cfg.get_vr_config(ticker)
+                vr_cfg['v_value'] = v_value
+                vr_cfg['enabled'] = True
+                if not vr_cfg.get('start_date'):
+                    vr_cfg['start_date'] = today_str
+                if not vr_cfg.get('last_v_update'):
+                    vr_cfg['last_v_update'] = today_str
+                self.cfg.set_vr_config(ticker, vr_cfg)
+                msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine)
+                confirm_text = (
+                    f"✅ <b>[VR5] {ticker} 초기 설정 완료!</b>\n"
+                    f"▫️ {qty}주 × ${avg_price:.2f} = V <b>${v_value:,.0f}</b>\n"
+                    f"▫️ 시작일: {today_str}\n\n"
+                ) + msg
+                await query.edit_message_text(confirm_text, reply_markup=markup, parse_mode='HTML')
 
             elif sub == "SET_V":
                 ticker = data[2] if len(data) > 2 else ""
