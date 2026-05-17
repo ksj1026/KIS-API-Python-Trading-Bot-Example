@@ -936,71 +936,74 @@ class TelegramCallbacks:
 
             elif sub == "CHECK":
                 ticker = data[2] if len(data) > 2 else ""
-                vr_cfg = self.cfg.get_vr_config(ticker)
-                if not vr_cfg.get('enabled') or vr_cfg.get('v_value', 0) <= 0:
-                    await query.answer("VR이 비활성화되어 있거나 V값이 설정되지 않았습니다.", show_alert=True)
-                    return
+                try:
+                    vr_cfg = self.cfg.get_vr_config(ticker)
+                    if not vr_cfg.get('enabled') or vr_cfg.get('v_value', 0) <= 0:
+                        await query.answer("VR이 비활성화되어 있거나 V값이 설정되지 않았습니다.", show_alert=True)
+                        return
 
-                curr_p = await asyncio.to_thread(self.broker.get_current_price, ticker)
-                curr_p = float(curr_p or 0.0)
-                if curr_p <= 0:
-                    await query.answer("현재가 조회 실패. 잠시 후 다시 시도하세요.", show_alert=True)
-                    return
+                    curr_p = float(await asyncio.to_thread(self.broker.get_current_price, ticker) or 0.0)
+                    if curr_p <= 0:
+                        await query.answer("현재가 조회 실패. 잠시 후 다시 시도하세요.", show_alert=True)
+                        return
 
-                _, holdings = await asyncio.to_thread(self.broker.get_account_balance)
-                h = (holdings or {}).get(ticker) or {}
-                qty = int(float(h.get('qty', 0)))
+                    _, holdings = await asyncio.to_thread(self.broker.get_account_balance)
+                    h = (holdings or {}).get(ticker) or {}
+                    qty = int(float(h.get('qty', 0)))
 
-                decision = vr_engine.get_decision(ticker, curr_p, qty, vr_cfg)
-                action_vr = decision.get('action')
-                portfolio = decision.get('portfolio', 0)
-                v = decision.get('v', 0)
-                low = decision.get('low_target', 0)
-                high = decision.get('high_target', 0)
+                    decision = vr_engine.get_decision(ticker, curr_p, qty, vr_cfg)
+                    action_vr = decision.get('action')
+                    portfolio = decision.get('portfolio', 0)
+                    v = decision.get('v', 0)
+                    low = decision.get('low_target', 0)
+                    high = decision.get('high_target', 0)
 
-                status_icon = '🟡 매수 신호' if action_vr == 'BUY' else ('🔴 매도 신호' if action_vr == 'SELL' else '🟢 정상')
-                result_msg = (
-                    f"🔍 <b>[VR5] {ticker} 밴드 체크 결과</b>\n"
-                    f"▫️ V: ${v:,.0f} / 밴드: ${low:,.0f}~${high:,.0f}\n"
-                    f"▫️ 포트폴리오: ${portfolio:,.0f} ({qty}주 × ${curr_p:.2f})\n"
-                    f"▫️ 상태: {status_icon}\n"
-                    f"▫️ {decision.get('reason', '')}"
-                )
-
-                if action_vr in ('BUY', 'SELL') and decision.get('qty', 0) > 0:
-                    order_qty = decision['qty']
-                    exec_price = (
-                        float(await asyncio.to_thread(self.broker.get_ask_price, ticker) or curr_p)
-                        if action_vr == 'BUY'
-                        else float(await asyncio.to_thread(self.broker.get_bid_price, ticker) or curr_p)
+                    status_icon = '🟡 매수 신호' if action_vr == 'BUY' else ('🔴 매도 신호' if action_vr == 'SELL' else '🟢 정상')
+                    result_msg = (
+                        f"🔍 <b>[VR5] {ticker} 밴드 체크 결과</b>\n"
+                        f"▫️ V: ${v:,.0f} / 밴드: ${low:,.0f}~${high:,.0f}\n"
+                        f"▫️ 포트폴리오: ${portfolio:,.0f} ({qty}주 × ${curr_p:.2f})\n"
+                        f"▫️ 상태: {status_icon}\n"
+                        f"▫️ {decision.get('reason', '')}"
                     )
-                    if exec_price <= 0:
-                        exec_price = curr_p
 
-                    # 확인 단계: 즉시 실행 대신 확인 버튼 표시
-                    side_icon = '🟡 매수' if action_vr == 'BUY' else '🔴 매도'
-                    confirm_msg = (
-                        f"{result_msg}\n\n"
-                        f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"📋 <b>주문 확인</b>\n"
-                        f"▫️ 방향: <b>{side_icon}</b>\n"
-                        f"▫️ 수량: <b>{order_qty}주</b>\n"
-                        f"▫️ 가격: <b>${exec_price:.2f}</b> (지정가)\n"
-                        f"▫️ 예상 금액: <b>${order_qty * exec_price:,.0f}</b>\n\n"
-                        f"주문을 실행하시겠습니까?"
-                    )
-                    confirm_markup = InlineKeyboardMarkup([
-                        [
-                            InlineKeyboardButton("✅ 주문 실행", callback_data=f"VR:EXEC_ORDER:{ticker}:{action_vr}:{order_qty}:{exec_price}"),
-                            InlineKeyboardButton("❌ 취소", callback_data=f"VR:SETTINGS:{ticker}"),
-                        ]
-                    ])
-                    await query.edit_message_text(confirm_msg, reply_markup=confirm_markup, parse_mode='HTML')
-                else:
-                    # HOLD 상태 — 설정 화면으로 돌아가기
-                    vr_cfg_refresh = self.cfg.get_vr_config(ticker)
-                    settings_msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg_refresh, vr_engine)
-                    await query.edit_message_text(result_msg + "\n\n" + settings_msg, reply_markup=markup, parse_mode='HTML')
+                    if action_vr in ('BUY', 'SELL') and decision.get('qty', 0) > 0:
+                        order_qty = decision['qty']
+                        exec_price = (
+                            float(await asyncio.to_thread(self.broker.get_ask_price, ticker) or curr_p)
+                            if action_vr == 'BUY'
+                            else float(await asyncio.to_thread(self.broker.get_bid_price, ticker) or curr_p)
+                        )
+                        if exec_price <= 0:
+                            exec_price = curr_p
+
+                        side_icon = '🟡 매수' if action_vr == 'BUY' else '🔴 매도'
+                        confirm_msg = (
+                            f"{result_msg}\n\n"
+                            f"━━━━━━━━━━━━━━━━━━━\n"
+                            f"📋 <b>주문 확인</b>\n"
+                            f"▫️ 방향: <b>{side_icon}</b>\n"
+                            f"▫️ 수량: <b>{order_qty}주</b>\n"
+                            f"▫️ 가격: <b>${exec_price:.2f}</b> (지정가)\n"
+                            f"▫️ 예상 금액: <b>${order_qty * exec_price:,.0f}</b>\n\n"
+                            f"주문을 실행하시겠습니까?"
+                        )
+                        confirm_markup = InlineKeyboardMarkup([
+                            [
+                                InlineKeyboardButton("✅ 주문 실행", callback_data=f"VR:EXEC_ORDER:{ticker}:{action_vr}:{order_qty}:{exec_price}"),
+                                InlineKeyboardButton("❌ 취소", callback_data=f"VR:SETTINGS:{ticker}"),
+                            ]
+                        ])
+                        await query.edit_message_text(confirm_msg, reply_markup=confirm_markup, parse_mode='HTML')
+                    else:
+                        # HOLD — 결과만 표시 후 설정 화면 복귀
+                        vr_cfg_refresh = self.cfg.get_vr_config(ticker)
+                        settings_msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg_refresh, vr_engine)
+                        await query.edit_message_text(result_msg + "\n\n" + settings_msg, reply_markup=markup, parse_mode='HTML')
+
+                except Exception as e:
+                    logging.error(f"🚨 [VR5] CHECK 처리 중 에러: {e}", exc_info=True)
+                    await query.answer(f"오류 발생: {str(e)[:50]}", show_alert=True)
 
             elif sub == "EXEC_ORDER":
                 ticker = data[2] if len(data) > 2 else ""
