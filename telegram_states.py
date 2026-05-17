@@ -213,11 +213,9 @@ class TelegramStates:
                 elif state.startswith("VR_UPDATE_V_"):
                     ticker = state[len("VR_UPDATE_V_"):]
                     vr_cfg = self.cfg.get_vr_config(ticker)
-                    # deposit은 음수도 허용
-                    deposit = round(val, 2)
-                    next_v = vr_engine.calc_next_v(vr_cfg, deposit=deposit)
+                    extra_deposit = round(val, 2)  # 음수(출금)도 허용
                     # 확인 화면 띄우기
-                    msg, markup = self.view.get_vr_update_confirm(ticker, vr_cfg, vr_engine, deposit=deposit)
+                    msg, markup = self.view.get_vr_update_confirm(ticker, vr_cfg, vr_engine, extra_deposit=extra_deposit)
                     del controller.user_states[chat_id]
                     return await update.message.reply_text(msg, reply_markup=markup, parse_mode='HTML')
 
