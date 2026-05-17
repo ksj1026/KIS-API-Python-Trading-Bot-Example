@@ -938,13 +938,25 @@ class TelegramCallbacks:
                 ticker = data[2] if len(data) > 2 else ""
                 try:
                     vr_cfg = self.cfg.get_vr_config(ticker)
-                    if not vr_cfg.get('enabled') or vr_cfg.get('v_value', 0) <= 0:
-                        await query.answer("VR이 비활성화되어 있거나 V값이 설정되지 않았습니다.", show_alert=True)
+                    if not vr_cfg.get('enabled'):
+                        await query.edit_message_text(
+                            f"⚠️ <b>[VR5] {ticker}</b> VR이 비활성화 상태입니다.\n설정에서 활성화 후 다시 시도하세요.",
+                            parse_mode='HTML'
+                        )
+                        return
+                    if vr_cfg.get('v_value', 0) <= 0:
+                        await query.edit_message_text(
+                            f"⚠️ <b>[VR5] {ticker}</b> V값이 설정되지 않았습니다.\n설정 메뉴에서 V값을 먼저 입력하세요.",
+                            parse_mode='HTML'
+                        )
                         return
 
                     curr_p = float(await asyncio.to_thread(self.broker.get_current_price, ticker) or 0.0)
                     if curr_p <= 0:
-                        await query.answer("현재가 조회 실패. 잠시 후 다시 시도하세요.", show_alert=True)
+                        await query.edit_message_text(
+                            f"⚠️ <b>[VR5] {ticker}</b> 현재가 조회 실패. 잠시 후 다시 시도하세요.",
+                            parse_mode='HTML'
+                        )
                         return
 
                     _, holdings = await asyncio.to_thread(self.broker.get_account_balance)
@@ -1003,7 +1015,10 @@ class TelegramCallbacks:
 
                 except Exception as e:
                     logging.error(f"🚨 [VR5] CHECK 처리 중 에러: {e}", exc_info=True)
-                    await query.answer(f"오류 발생: {str(e)[:50]}", show_alert=True)
+                    try:
+                        await query.edit_message_text(f"❌ <b>[VR5] 오류 발생</b>\n{str(e)[:200]}", parse_mode='HTML')
+                    except Exception:
+                        pass
 
             elif sub == "EXEC_ORDER":
                 ticker = data[2] if len(data) > 2 else ""
