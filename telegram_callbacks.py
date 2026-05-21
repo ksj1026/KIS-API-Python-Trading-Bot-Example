@@ -555,7 +555,9 @@ class TelegramCallbacks:
                     
                 err_msg = res.get('msg1', '오류')
                 status_icon = '✅' if is_success else f'❌({err_msg})'
-                msg += f"└ 1차 필수: {o['desc']} {o['qty']}주: {status_icon}\n"
+                amt = o['qty'] * o['price'] if o.get('price', 0) > 0 else 0
+                amt_str = f" (${amt:,.0f})" if amt > 0 else ""
+                msg += f"└ 1차 필수: {o['desc']} {o['qty']}주{amt_str}: {status_icon}\n"
                 await asyncio.sleep(0.2) 
                 
             for o in plan.get('bonus_orders', []):

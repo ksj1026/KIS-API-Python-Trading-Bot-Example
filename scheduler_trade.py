@@ -960,7 +960,9 @@ async def scheduled_regular_trade(context):
                     # MODIFIED: [V28.38 f-string 런타임 붕괴 방어막]
                     err_msg = res.get('msg1', '오류')
                     status_icon = '✅' if res.get('rt_cd') == '0' else f'❌({err_msg})'
-                    msgs[t] += f"└ 1차 필수: {o['desc']} {o['qty']}주: {status_icon}\n"
+                    amt = o['qty'] * o['price'] if o.get('price', 0) > 0 else 0
+                    amt_str = f" (${amt:,.0f})" if amt > 0 else ""
+                    msgs[t] += f"└ 1차 필수: {o['desc']} {o['qty']}주{amt_str}: {status_icon}\n"
                     await asyncio.sleep(0.2) 
 
             for t in sorted_tickers:
