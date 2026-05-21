@@ -970,7 +970,9 @@ async def scheduled_regular_trade(context):
                 target_bonus = plans[t].get('bonus_orders', [])
                 for o in target_bonus:
                     res = broker.send_order(t, o['side'], o['qty'], o['price'], o['type'])
-                    msgs[t] += f"└ 2차 보너스: {o['desc']} {o['qty']}주: {'✅' if res.get('rt_cd')=='0' else '❌(잔금패스)'}\n"
+                    amt = o['qty'] * o['price'] if o.get('price', 0) > 0 else 0
+                    amt_str = f" (${amt:,.0f})" if amt > 0 else ""
+                    msgs[t] += f"└ 2차 보너스: {o['desc']} {o['qty']}주{amt_str}: {'✅' if res.get('rt_cd')=='0' else '❌(잔금패스)'}\n"
                     await asyncio.sleep(0.2) 
 
             for t in sorted_tickers:
