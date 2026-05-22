@@ -143,7 +143,8 @@ class TelegramController:
         
         # 🚨 [V28.50 NEW] 암살자 전용 명령어 신설
         application.add_handler(CommandHandler("avwap", self.cmd_avwap))
-        
+        application.add_handler(CommandHandler("retoken", self.cmd_retoken))
+
         application.add_handler(CallbackQueryHandler(self.handle_callback))
         application.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, self.handle_message))
 
@@ -784,6 +785,20 @@ class TelegramController:
         history_data = self.cfg.get_full_version_history()
         msg, markup = self.view.get_version_message(history_data, page_index=None)
         await update.message.reply_text(msg, reply_markup=markup, parse_mode='HTML')
+
+    async def cmd_retoken(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """KIS API 토큰 강제 재발급"""
+        if not self._is_admin(update):
+            return
+        await update.message.reply_text("🔄 KIS API 토큰 강제 재발급 중...")
+        try:
+            await asyncio.to_thread(self.broker._get_access_token, True)
+            if self.broker.token:
+                await update.message.reply_text("✅ KIS API 토큰 재발급 완료.")
+            else:
+                await update.message.reply_text("❌ 토큰 재발급 실패. 로그를 확인하세요.")
+        except Exception as e:
+            await update.message.reply_text(f"❌ 토큰 재발급 오류: {e}")
 
     async def cmd_vr(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """VR5 밸류리밸런싱 메인 메뉴 (TQQQ 전용)"""
