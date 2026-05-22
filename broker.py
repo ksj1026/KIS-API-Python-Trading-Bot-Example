@@ -56,17 +56,29 @@ class KoreaInvestmentBroker:
                 expire_time = datetime.datetime.strptime(saved['expire'], '%Y-%m-%d %H:%M:%S')
                 now_kst_naive = datetime.datetime.now(kst).replace(tzinfo=None)
 
-                if expire_time > now_kst_naive + datetime.timedelta(hours=1):
-                    self.token = saved['token']
-                    return
-                else:
-                    # 🚨 [BUGFIX] force=False여도 토큰이 만료(1시간 이내)된 경우
-                    # 기존 파일을 삭제하지 않으면 만료 토큰이 재사용되는 버그 수정
-                    logging.warning("⚠️ [Broker] 저장된 토큰이 1시간 이내 만료 예정. 파일 삭제 후 재발급합니다.")
+                # 발급 시간 기록이 있으면 23시간 경과 여부 우선 체크
+                issued_str = saved.get('issued')
+                need_reissue = False
+                if issued_str:
+                    issued_time = datetime.datetime.strptime(issued_str, '%Y-%m-%d %H:%M:%S')
+                    elapsed_hours = (now_kst_naive - issued_time).total_seconds() / 3600
+                    if elapsed_hours >= 23:
+                        logging.warning(f"⚠️ [Broker] 토큰 발급 후 {elapsed_hours:.1f}시간 경과. 재발급합니다.")
+                        need_reissue = True
+
+                if not need_reissue:
+                    if expire_time > now_kst_naive + datetime.timedelta(hours=1):
+                        self.token = saved['token']
+                        return
+                    else:
+                        logging.warning("⚠️ [Broker] 저장된 토큰이 1시간 이내 만료 예정. 재발급합니다.")
+                        need_reissue = True
+
+                if need_reissue:
                     try: os.remove(self.token_file)
                     except Exception: pass
             except Exception:
-                # 파일 파싱 자체가 실패한 경우 오염된 파일 삭제
+                # 파일 파싱 실패 시 오염된 파일 삭제
                 try: os.remove(self.token_file)
                 except Exception: pass
 
@@ -82,16 +94,18 @@ class KoreaInvestmentBroker:
             data = res.json()
             if 'access_token' in data:
                 self.token = data['access_token']
-                expire_str = (datetime.datetime.now(kst).replace(tzinfo=None) + datetime.timedelta(seconds=int(data['expires_in']))).strftime('%Y-%m-%d %H:%M:%S')
-                
+                now_kst_naive = datetime.datetime.now(kst).replace(tzinfo=None)
+                issued_str = now_kst_naive.strftime('%Y-%m-%d %H:%M:%S')
+                expire_str = (now_kst_naive + datetime.timedelta(seconds=int(data['expires_in']))).strftime('%Y-%m-%d %H:%M:%S')
+
                 dir_name = os.path.dirname(self.token_file)
                 if dir_name and not os.path.exists(dir_name):
                     os.makedirs(dir_name, exist_ok=True)
                 fd, temp_path = tempfile.mkstemp(dir=dir_name, text=True)
-                
+
                 try:
                     with os.fdopen(fd, 'w', encoding='utf-8') as f:
-                        json.dump({'token': self.token, 'expire': expire_str}, f)
+                        json.dump({'token': self.token, 'issued': issued_str, 'expire': expire_str}, f)
                         f.flush()
                         os.fsync(f.fileno())
                     
