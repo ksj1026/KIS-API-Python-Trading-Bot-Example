@@ -568,9 +568,6 @@ class ConfigManager:
             return None, 0
         
         ledger_qty, avg_price, _, _ = self.calculate_holdings(ticker, target_recs)
-        
-        raw_total_buy = sum(r['price']*r['qty'] for r in target_recs if r['side']=='BUY')
-        raw_total_sell = sum(r['price']*r['qty'] for r in target_recs if r['side']=='SELL')
 
         if ledger_qty > 0:
             split = self.get_split_count(ticker)
@@ -605,6 +602,10 @@ class ConfigManager:
                 target_recs.append(rec_limit)
 
             self._save_json(self.FILES["LEDGER"], ledger)
+
+        # 졸업 SELL 레코드 추가 후 집계 (이전에 계산하면 졸업 매도금액 누락)
+        raw_total_buy = sum(r['price']*r['qty'] for r in target_recs if r['side']=='BUY')
+        raw_total_sell = sum(r['price']*r['qty'] for r in target_recs if r['side']=='SELL')
 
         fee_rate = self.get_fee(ticker) / 100.0
         net_invested = raw_total_buy * (1.0 + fee_rate)
