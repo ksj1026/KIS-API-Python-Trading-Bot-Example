@@ -180,20 +180,31 @@ class TelegramSyncEngine:
                             # 집계되어 전액 손실(-매수총액)로 오산출되는 치명적 버그를 방어.
                             # 체결 내역(target_execs)에서 실제 매도 평균가를 역산하고, 없으면 매수 평단가로 폴백.
                             if calib_side == "SELL" and actual_avg == 0:
-                                # sll_buy_dvsn_cd: '01'=매도, '02'=매수
+                                # 졸업(전량매도) 케이스: sll_buy_dvsn_cd '01'=매도, '02'=매수
                                 sell_execs = [ex for ex in (target_execs or []) if ex.get('sll_buy_dvsn_cd') == '01']
                                 if sell_execs:
                                     _sq = sum(float(ex.get('ft_ccld_qty', '0')) for ex in sell_execs)
                                     _sa = sum(float(ex.get('ft_ccld_qty', '0')) * float(ex.get('ft_ccld_unpr3', '0')) for ex in sell_execs)
                                     calib_price = round(_sa / _sq, 4) if _sq > 0 else temp_sim_avg
                                 else:
-                                    # 폴백 1: 당일 KIS 현재가 시도
+                                    # 폴백: 당일 KIS 현재가 시도
                                     try:
                                         curr_p = self.broker.get_current_price(ticker)
                                         calib_price = float(curr_p) if curr_p and float(curr_p) > 0 else temp_sim_avg
                                     except Exception:
                                         calib_price = temp_sim_avg
                                     logging.warning(f"⚠️ [{ticker}] SELL CALIB 체결 내역 없음. 현재가(${calib_price:.2f})로 폴백 — 졸업 수익 수동 확인 필요.")
+                            elif calib_side == "BUY" and actual_avg > 0 and temp_sim_qty >= 0:
+                                # 🔧 BUY CALIB: 계좌 평단가(actual_avg)에서 실제 체결가 역산
+                                # actual_avg * actual_qty = temp_sim_qty * temp_sim_avg + gap_qty * exec_price
+                                # ∴ exec_price = (actual_avg * actual_qty - temp_sim_qty * temp_sim_avg) / gap_qty
+                                if temp_sim_qty == 0:
+                                    # 신규 시작 — actual_avg = 첫 매수가
+                                    calib_price = actual_avg
+                                else:
+                                    calc_price = (actual_avg * actual_qty - temp_sim_qty * temp_sim_avg) / abs(gap_qty)
+                                    calib_price = round(calc_price, 4) if calc_price > 0 else actual_avg
+                                logging.info(f"🔧 [{ticker}] BUY CALIB 역산: 기존 {temp_sim_qty}주@${temp_sim_avg:.2f} + {abs(gap_qty)}주 → 계좌평단 ${actual_avg:.2f} → 체결가 역산 ${calib_price:.4f}")
                             else:
                                 calib_price = actual_avg
 
