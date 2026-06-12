@@ -106,6 +106,17 @@ class TelegramSyncEngine:
                 
                 if not schedule.empty:
                     last_trade_date = schedule.index[-1]
+                    # [LOC 체결 타이밍 보정]
+                    # 주문은 KST 17:05(≈EDT 04:05)에 전송되고 LOC로 당일 EDT 16:00에 체결됨.
+                    # 정산은 KST 17:00(≈EDT 04:00) 다음날에 실행되므로, 이 시각에는
+                    # NYSE 마지막 거래일이 "오늘(아직 미개장)"로 잡혀 체결내역이 빈 결과가 됨.
+                    # EDT 16:00 이전이면 마켓이 아직 닫히지 않은 날이므로 전 거래일을 사용.
+                    market_close_est = now_est.replace(hour=16, minute=0, second=0, microsecond=0)
+                    last_trade_day_date = last_trade_date.date() if hasattr(last_trade_date, 'date') else last_trade_date
+                    if last_trade_day_date == now_est.date() and now_est < market_close_est:
+                        if len(schedule) >= 2:
+                            last_trade_date = schedule.index[-2]
+                            logging.info(f"[EC-2] 마켓 미개장(EDT {now_est.strftime('%H:%M')}) → 전 거래일 {last_trade_date.strftime('%Y-%m-%d')} 사용")
                     target_kis_str = last_trade_date.strftime('%Y%m%d')
                     target_ledger_str = last_trade_date.strftime('%Y-%m-%d')
                 else:
