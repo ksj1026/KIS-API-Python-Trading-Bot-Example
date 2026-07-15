@@ -605,7 +605,8 @@ class KoreaInvestmentBroker:
         if order_qty <= 0:
             return {'rt_cd': '999', 'msg1': f'유효하지 않은 주문 수량: {qty}'}
 
-        for attempt in range(2):
+        price_adj = 0.0
+        for attempt in range(3):
             tr_id = "TTTT1002U" if side == "BUY" else "TTTT1006U"
             excg_cd = self._get_exchange_code(ticker, target_api="ORDER")
 
@@ -613,35 +614,41 @@ class KoreaInvestmentBroker:
             elif order_type == "MOC": ord_dvsn = "33"
             elif order_type == "LOO": ord_dvsn = "02"
             elif order_type == "MOO": ord_dvsn = "31"
-            elif order_type == "AFTER_LIMIT": 
-                ord_dvsn = "00"  
+            elif order_type == "AFTER_LIMIT":
+                ord_dvsn = "00"
             else: ord_dvsn = "00"
 
-            final_price = self._ceil_2(price)
+            final_price = self._ceil_2(price + price_adj)
             if order_type in ["MOC", "MOO"]: final_price = 0
             elif order_type not in ["MOC", "MOO"] and final_price <= 0.0:
                 return {'rt_cd': '999', 'msg1': f'유효하지 않은 주문 가격: {price}'}
-            
+
             body = {
                 "CANO": self.cano, "ACNT_PRDT_CD": self.acnt_prdt_cd, "OVRS_EXCG_CD": excg_cd,
                 "PDNO": ticker, "ORD_QTY": str(order_qty), "OVRS_ORD_UNPR": str(final_price),
-                "ORD_SVR_DVSN_CD": "0", "ORD_DVSN": ord_dvsn 
+                "ORD_SVR_DVSN_CD": "0", "ORD_DVSN": ord_dvsn
             }
             res = self._call_api(tr_id, "/uapi/overseas-stock/v1/trading/order", "POST", body=body)
-            
+
             rt_cd = res.get('rt_cd', '999')
             msg1 = res.get('msg1', '오류')
             output = res.get('output', {})
             odno = output.get('ODNO', '') if isinstance(output, dict) else ''
-            
+
             if rt_cd != '0' and attempt == 0 and ("거래소" in msg1 or "시장" in msg1 or "exchange" in msg1.lower() or "코드" in msg1):
                 if ticker in self._excg_cd_cache:
                     del self._excg_cd_cache[ticker]
                 time.sleep(0.5)
                 continue
-                
+
+            if rt_cd != '0' and "자전거래" in msg1 and price_adj == 0.0:
+                logging.warning(f"⚠️ [{ticker}] 자전거래 의심 주문 감지 — 가격 +$0.01 조정 후 재시도 (${final_price:.2f} → ${final_price + 0.01:.2f})")
+                price_adj = 0.01
+                time.sleep(0.3)
+                continue
+
             return {'rt_cd': rt_cd, 'msg1': msg1, 'odno': odno}
-            
+
         return {'rt_cd': '999', 'msg1': '거래소 캐시 재시도 최대 횟수 초과'}
 
     def cancel_order(self, ticker, order_id):
