@@ -22,6 +22,8 @@ import json
 import pandas_market_calendars as mcal
 import random
 
+from telegram import InlineKeyboardButton, InlineKeyboardMarkup
+
 from scheduler_core import is_market_open, get_budget_allocation, get_target_hour
 
 # ==========================================================
@@ -1058,10 +1060,10 @@ async def scheduled_after_market_lottery(context):
         logging.error(f"🚨 애프터마켓 로터리 덫 에러: {e}", exc_info=True)
 
 # ==========================================================
-# 6. 📊 VR5 밸류리밸런싱 주간 체크 (월요일 9:40 EST)
+# 6. 📊 VR5 밸류리밸런싱 일일 체크 (TARGET_HOUR:03 KST, 무매4 주문 2분 전)
 # ==========================================================
 async def scheduled_vr_check(context):
-    """VR5 밸류리밸런싱 밴드 체크 및 지정가 자동 실행"""
+    """VR5 밸류리밸런싱 밴드 체크 및 당일 지정가 자동 재장전 (KIS 무GTC 대체)"""
     if not is_market_open():
         return
 
@@ -1098,24 +1100,22 @@ async def scheduled_vr_check(context):
                 h = safe_holdings.get(ticker) or {}
                 qty = int(float(h.get('qty', 0)))
 
-                decision = vr_engine.get_decision(ticker, curr_p, qty, vr_cfg)
-                action = decision.get('action')
-                portfolio = decision.get('portfolio', 0)
-                v = decision.get('v', 0)
-                low = decision.get('low_target', 0)
-                high = decision.get('high_target', 0)
+                ladder = vr_engine.get_ladder_orders(ticker, curr_p, qty, vr_cfg)
+                orders = ladder.get('orders', [])
+                v = ladder.get('v', 0)
+                low = ladder.get('low', 0)
+                high = ladder.get('high', 0)
+                portfolio = ladder.get('portfolio', 0)
 
                 # V 업데이트 도달 여부
                 needs_update = vr_engine.should_update_v(vr_cfg)
                 weeks_since = vr_engine.weeks_since_v_update(vr_cfg)
 
-                status_icon = '🟡 매수 신호' if action == 'BUY' else ('🔴 매도 신호' if action == 'SELL' else '🟢 정상')
                 msg = (
-                    f"📊 <b>[VR5] {ticker} 주간 리밸런싱 체크</b>\n"
+                    f"📊 <b>[VR5] {ticker} 일일 사다리 재장전</b>\n"
                     f"▫️ V 타겟: <b>${v:,.0f}</b>\n"
                     f"▫️ 밴드: ${low:,.0f} ~ ${high:,.0f}\n"
-                    f"▫️ 포트폴리오: ${portfolio:,.0f} ({qty}주 × ${curr_p:.2f})\n"
-                    f"▫️ 상태: {status_icon}"
+                    f"▫️ 포트폴리오: ${portfolio:,.0f} ({qty}주 × ${curr_p:.2f})"
                 )
 
                 if needs_update:
@@ -1127,39 +1127,26 @@ async def scheduled_vr_check(context):
                         f"▫️ /vr 커맨드로 V 업데이트를 진행하세요."
                     )
 
-                await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
+                # 현재가 ±15% 이내 사다리 주문표 발송 — 승인(✅) 후에만 일괄 전송
+                if orders:
+                    table = vr_engine.format_ladder_table(orders, curr_p)
 
-                # 밴드 이탈 시 지정가 자동 실행
-                if action in ('BUY', 'SELL') and decision.get('qty', 0) > 0:
-                    order_qty = decision['qty']
+                    est = pytz.timezone('US/Eastern')
+                    today_est = datetime.datetime.now(est).strftime('%Y-%m-%d')
+                    cfg.set_vr_pending_orders(ticker, today_est, orders)
 
-                    if action == 'BUY':
-                        exec_price = float(await asyncio.to_thread(broker.get_ask_price, ticker) or curr_p)
-                    else:
-                        exec_price = float(await asyncio.to_thread(broker.get_bid_price, ticker) or curr_p)
-
-                    if exec_price <= 0:
-                        exec_price = curr_p
-
-                    res = broker.send_order(ticker, action, order_qty, exec_price, "LIMIT")
-                    if res.get('rt_cd') == '0':
-                        await context.bot.send_message(
-                            chat_id=chat_id,
-                            text=(
-                                f"✅ <b>[VR5] {ticker} {action} 주문 실행!</b>\n"
-                                f"▫️ {order_qty}주 × ${exec_price:.2f}\n"
-                                f"▫️ 사유: {decision.get('reason', '')}"
-                            ),
-                            parse_mode='HTML'
-                        )
-                    else:
-                        await context.bot.send_message(
-                            chat_id=chat_id,
-                            text=f"❌ <b>[VR5] {ticker} 주문 실패:</b> {res.get('msg1', '에러')}",
-                            parse_mode='HTML'
-                        )
+                    confirm_markup = InlineKeyboardMarkup([
+                        [
+                            InlineKeyboardButton("✅ 주문 실행", callback_data=f"VR:EXEC_LADDER:{ticker}"),
+                            InlineKeyboardButton("❌ 취소", callback_data=f"VR:SETTINGS:{ticker}"),
+                        ]
+                    ])
+                    await context.bot.send_message(chat_id=chat_id, text=msg + table, reply_markup=confirm_markup, parse_mode='HTML')
+                elif needs_update:
+                    # 사다리 없음(범위 밖/보유 0 등) 알림은 생략하되, V 업데이트 도래 시에는 리마인드 발송
+                    await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
 
     try:
         await asyncio.wait_for(_do_vr(), timeout=120.0)
     except Exception as e:
-        logging.error(f"🚨 VR5 주간 체크 에러: {e}", exc_info=True)
+        logging.error(f"🚨 VR5 일일 체크 에러: {e}", exc_info=True)

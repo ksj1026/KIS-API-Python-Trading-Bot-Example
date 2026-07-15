@@ -61,7 +61,8 @@ class ConfigManager:
             "FEE_CFG": "data/fee_config.json", # NEW: 동적 수수료 저장소 추가
             "AVWAP_EARLY_EXIT_CFG": "data/avwap_early_exit.json",    # 🚨 [V28.50] 조기 퇴근 듀얼 모드 스위치
             "AVWAP_EARLY_TARGET_CFG": "data/avwap_early_target.json", # 🚨 [V28.50] 조기 퇴근 목표 수익률 저장소
-            "VR_CFG": "data/vr_config.json"  # NEW: VR5 밸류리밸런싱 설정 저장소
+            "VR_CFG": "data/vr_config.json",  # NEW: VR5 밸류리밸런싱 설정 저장소
+            "VR_PENDING": "data/vr_pending_orders.json"  # NEW: VR5 사다리 주문 승인 대기열
         }
         
         self.DEFAULT_SEED = {"SOXL": 6720.0, "TQQQ": 6720.0}
@@ -758,6 +759,22 @@ class ConfigManager:
         """VR5 활성화된 티커 목록 반환."""
         d = self._load_json(self.FILES["VR_CFG"], {})
         return [t for t, v in d.items() if v.get('enabled')]
+
+    def set_vr_pending_orders(self, ticker, date_str, orders):
+        """VR5 사다리 주문 승인 대기열 저장. date_str(EST)이 다른 날이면 실행 시 무효 처리됨."""
+        d = self._load_json(self.FILES["VR_PENDING"], {})
+        d[ticker] = {"date": date_str, "orders": orders}
+        self._save_json(self.FILES["VR_PENDING"], d)
+
+    def pop_vr_pending_orders(self, ticker, date_str):
+        """당일 대기열만 꺼내서 반환(반환 즉시 삭제 — 중복 승인 방지). 날짜 불일치 시 None."""
+        d = self._load_json(self.FILES["VR_PENDING"], {})
+        entry = d.get(ticker)
+        if not entry or entry.get("date") != date_str:
+            return None
+        del d[ticker]
+        self._save_json(self.FILES["VR_PENDING"], d)
+        return entry.get("orders", [])
     # ==========================================================
 
     def get_secret_mode(self): return self._load_file(self.FILES["SECRET_MODE"]) == 'True'

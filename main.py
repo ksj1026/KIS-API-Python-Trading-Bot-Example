@@ -274,8 +274,9 @@ def main():
 
     jq.run_daily(scheduled_self_cleaning, time=datetime.time(6, 0, tzinfo=kst), days=tuple(range(7)), chat_id=ADMIN_CHAT_ID, data=app_data)
 
-    # 3. VR5 밸류리밸런싱 주간 체크 (월요일 9:40 EST)
-    jq.run_daily(scheduled_vr_check, time=datetime.time(9, 40, tzinfo=est), days=(1,), chat_id=ADMIN_CHAT_ID, data=app_data)
+    # 3. VR5 밸류리밸런싱 일일 체크 (무매4 주문 2분 전, TARGET_HOUR:03 KST)
+    # KIS 해외주식은 GTC/기간예약이 없어 당일 지정가를 매일 재장전하는 방식으로 원전 VR의 상시 밴드 주문을 대체
+    jq.run_daily(scheduled_vr_check, time=datetime.time(TARGET_HOUR, 3, tzinfo=kst), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
         
     app.run_polling()
 
