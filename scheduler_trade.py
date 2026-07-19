@@ -22,8 +22,6 @@ import json
 import pandas_market_calendars as mcal
 import random
 
-from telegram import InlineKeyboardButton, InlineKeyboardMarkup
-
 from scheduler_core import is_market_open, get_budget_allocation, get_target_hour
 
 # ==========================================================
@@ -1127,21 +1125,36 @@ async def scheduled_vr_check(context):
                         f"▫️ /vr 커맨드로 V 업데이트를 진행하세요."
                     )
 
-                # 현재가 ±15% 이내 사다리 주문표 발송 — 승인(✅) 후에만 일괄 전송
+                # 현재가 ±15% 이내 사다리 즉시 전송 후 주문내역 보고
                 if orders:
-                    table = vr_engine.format_ladder_table(orders, curr_p)
+                    # 표시/전송 순서: 매도 높은 가격부터 → 매수 높은 가격부터
+                    sorted_orders = (
+                        sorted([o for o in orders if o['side'] == 'SELL'], key=lambda x: -x['price'])
+                        + sorted([o for o in orders if o['side'] == 'BUY'], key=lambda x: -x['price'])
+                    )
 
-                    est = pytz.timezone('US/Eastern')
-                    today_est = datetime.datetime.now(est).strftime('%Y-%m-%d')
-                    cfg.set_vr_pending_orders(ticker, today_est, orders)
+                    ok_cnt, fail_cnt, lines = 0, 0, []
+                    for o in sorted_orders:
+                        res = await asyncio.to_thread(
+                            broker.send_order, ticker, o['side'], o['qty'], o['price'], "LIMIT"
+                        )
+                        icon = '🔴 매도' if o['side'] == 'SELL' else '🟡 매수'
+                        if res.get('rt_cd') == '0':
+                            ok_cnt += 1
+                            lines.append(f"✅ {icon} {o['qty']}주 × ${o['price']:.2f}")
+                        else:
+                            fail_cnt += 1
+                            lines.append(f"❌ {icon} {o['qty']}주 × ${o['price']:.2f} — {res.get('msg1', '에러')}")
+                        await asyncio.sleep(0.2)
 
-                    confirm_markup = InlineKeyboardMarkup([
-                        [
-                            InlineKeyboardButton("✅ 주문 실행", callback_data=f"VR:EXEC_LADDER:{ticker}"),
-                            InlineKeyboardButton("❌ 취소", callback_data=f"VR:SETTINGS:{ticker}"),
-                        ]
-                    ])
-                    await context.bot.send_message(chat_id=chat_id, text=msg + table, reply_markup=confirm_markup, parse_mode='HTML')
+                    report = (
+                        f"{msg}\n\n"
+                        f"━━━━━━━━━━━━━━━━━━━\n"
+                        f"📋 <b>사다리 주문 전송 완료</b> (1주 × 지정가, 당일 유효)\n"
+                        f"▫️ 성공 {ok_cnt}건 / 실패 {fail_cnt}건 — 현재가 ${curr_p:.2f}\n\n"
+                        + "\n".join(lines)
+                    )
+                    await context.bot.send_message(chat_id=chat_id, text=report, parse_mode='HTML')
                 elif needs_update:
                     # 사다리 없음(범위 밖/보유 0 등) 알림은 생략하되, V 업데이트 도래 시에는 리마인드 발송
                     await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
