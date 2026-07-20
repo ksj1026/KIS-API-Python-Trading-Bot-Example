@@ -19,11 +19,24 @@ from datetime import datetime
 import pytz  # NEW: [V28.26] 타임존 고정을 위한 라이브러리 추가
 
 class V14Strategy:
+    # 🚨 [가격 컬러(Collar) 방어] KIS는 현재가 대비 지나치게 벗어난 지정가 매수 주문을
+    # "비정상 주문"으로 판단해 거부한다(관측: ~30% 이격 시 거부). 평단가(avg_price)가
+    # 하락장에서 현재가와 크게 벌어지면 ⚓평단매수/💫별값매수/🧹줍줍 가격이 그 간극을 그대로
+    # 물려받아 거부 사유가 되므로, 현재가 대비 이 상한(%) 안으로 강제 클램핑한다.
+    PRICE_COLLAR_PCT = 0.20
+
     def __init__(self, config):
         self.cfg = config
 
     def _ceil(self, val): return math.ceil(val * 100) / 100.0
     def _floor(self, val): return math.floor(val * 100) / 100.0
+
+    def _apply_price_collar(self, target_price, base_price):
+        """BUY 지정가가 현재가(base_price) 대비 PRICE_COLLAR_PCT를 넘게 높으면 상한으로 클램핑."""
+        if base_price <= 0 or target_price <= 0:
+            return target_price
+        ceiling = self._floor(base_price * (1 + self.PRICE_COLLAR_PCT))
+        return min(target_price, ceiling)
 
     # NEW: [V28.17 스냅샷 엔진 이식] V14 오리지널 모드 스냅샷 저장(Lock-on) 로직
     def save_daily_snapshot(self, ticker, plan_data):
@@ -258,7 +271,8 @@ class V14Strategy:
                     buy_price = 0
                     if one_portion_amt > 0 and star_price > 0:
                         buy_price = max(0.01, round(star_price - 0.01, 2))
-                        if buy_price > 0: 
+                        buy_price = self._apply_price_collar(buy_price, base_price)
+                        if buy_price > 0:
                             buy_qty = int(math.floor(one_portion_amt / buy_price))
                             if buy_qty > 0:
                                 core_orders.append({"side": "BUY", "price": buy_price, "qty": buy_qty, "type": "LOC", "desc": "⚓잔금매수"})
@@ -308,9 +322,11 @@ class V14Strategy:
 
             N = math.floor(one_portion_amt / avg_price) if avg_price > 0 else 0
             p_avg = max(0.01, round(min(self._ceil(avg_price) - 0.01, safe_ceiling - 0.01), 2))
-            
+            p_avg = self._apply_price_collar(p_avg, base_price)
+
             if can_buy:
                 p_star = max(0.01, round(star_price - 0.01, 2))
+                p_star = self._apply_price_collar(p_star, base_price)
 
                 if t_val < (split / 2):
                     half_amt = one_portion_amt * 0.5
@@ -338,6 +354,7 @@ class V14Strategy:
                         capped_jup_price = round(min(jup_price, avg_price - 0.01), 2)
                         if capped_jup_price > 0:
                             safe_jup_price = max(0.01, capped_jup_price)
+                            safe_jup_price = self._apply_price_collar(safe_jup_price, base_price)
                             bonus_orders.append({"side": "BUY", "price": safe_jup_price, "qty": int(1), "type": "LOC", "desc": f"🧹줍줍({i})"})
 
             if qty > 0:
