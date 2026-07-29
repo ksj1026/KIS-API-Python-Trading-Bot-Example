@@ -1098,6 +1098,21 @@ async def scheduled_vr_check(context):
                 h = safe_holdings.get(ticker) or {}
                 qty = int(float(h.get('qty', 0)))
 
+                # V 업데이트 주기 도래 시 자동 반영 — 사다리 계산 전에 최신 V로 먼저 갱신
+                v_update_note = ""
+                if vr_engine.should_update_v(vr_cfg):
+                    old_v = float(vr_cfg.get('v_value', 0.0))
+                    weeks_since = vr_engine.weeks_since_v_update(vr_cfg)
+                    regular_deposit = float(vr_cfg.get('deposit', 0.0))
+                    new_v = vr_engine.calc_next_v(vr_cfg, deposit=regular_deposit)
+                    vr_cfg['v_value'] = new_v
+                    vr_cfg['last_v_update'] = datetime.date.today().isoformat()
+                    cfg.set_vr_config(ticker, vr_cfg)
+                    v_update_note = (
+                        f"\n\n⏰ <b>V 자동 업데이트 완료!</b>\n"
+                        f"▫️ ${old_v:,.0f} → <b>${new_v:,.0f}</b> ({weeks_since}주 경과, 정기적립 ${regular_deposit:,.0f} 반영)"
+                    )
+
                 ladder = vr_engine.get_ladder_orders(ticker, curr_p, qty, vr_cfg)
                 orders = ladder.get('orders', [])
                 v = ladder.get('v', 0)
@@ -1105,25 +1120,13 @@ async def scheduled_vr_check(context):
                 high = ladder.get('high', 0)
                 portfolio = ladder.get('portfolio', 0)
 
-                # V 업데이트 도달 여부
-                needs_update = vr_engine.should_update_v(vr_cfg)
-                weeks_since = vr_engine.weeks_since_v_update(vr_cfg)
-
                 msg = (
                     f"📊 <b>[VR5] {ticker} 일일 사다리 재장전</b>\n"
                     f"▫️ V 타겟: <b>${v:,.0f}</b>\n"
                     f"▫️ 밴드: ${low:,.0f} ~ ${high:,.0f}\n"
                     f"▫️ 포트폴리오: ${portfolio:,.0f} ({qty}주 × ${curr_p:.2f})"
+                    + v_update_note
                 )
-
-                if needs_update:
-                    next_v = vr_engine.calc_next_v(vr_cfg)
-                    msg += (
-                        f"\n\n⏰ <b>V 업데이트 시점 도래!</b>\n"
-                        f"▫️ 마지막 업데이트: {vr_cfg.get('last_v_update', '-')} ({weeks_since}주 전)\n"
-                        f"▫️ 예상 다음 V: <b>${next_v:,.0f}</b>\n"
-                        f"▫️ /vr 커맨드로 V 업데이트를 진행하세요."
-                    )
 
                 # 현재가 ±15% 이내 사다리 즉시 전송 후 주문내역 보고
                 if orders:
@@ -1155,8 +1158,8 @@ async def scheduled_vr_check(context):
                         + "\n".join(lines)
                     )
                     await context.bot.send_message(chat_id=chat_id, text=report, parse_mode='HTML')
-                elif needs_update:
-                    # 사다리 없음(범위 밖/보유 0 등) 알림은 생략하되, V 업데이트 도래 시에는 리마인드 발송
+                elif v_update_note:
+                    # 사다리 없음(범위 밖/보유 0 등) 알림은 생략하되, V 자동 업데이트가 있었으면 결과 발송
                     await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
 
     try:
