@@ -987,8 +987,13 @@ async def scheduled_regular_trade(context):
                 elif len(target_bonus) > 0:
                     cfg.set_lock(t, "REG")
                     msgs[t] += "\n🔒 <b>보너스 주문만 전송 완료 (잠금 설정됨)</b>"
-                    
-                if not any(tx[0] == t for tx in v_rev_tickers): 
+
+                # 방금 전송한 LOC 주문은 종가 체결 전이라 장부(ledger)에 아직 반영되지 않으므로,
+                # 여기서 조회하는 잔여 시드는 "이번 주문 전송 직전 기준"의 값이다.
+                _, _, rem_cash = cfg.calculate_v14_state(t)
+                msgs[t] += f"\n💰 <b>잔여 시드: ${rem_cash:,.2f}</b>"
+
+                if not any(tx[0] == t for tx in v_rev_tickers):
                     await context.bot.send_message(chat_id=chat_id, text=msgs[t], parse_mode='HTML')
 
             return True, "SUCCESS"
