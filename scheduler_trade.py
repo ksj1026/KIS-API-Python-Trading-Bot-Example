@@ -1109,13 +1109,17 @@ async def scheduled_vr_check(context):
                     old_v = float(vr_cfg.get('v_value', 0.0))
                     weeks_since = vr_engine.weeks_since_v_update(vr_cfg)
                     regular_deposit = float(vr_cfg.get('deposit', 0.0))
+                    pool = float(vr_cfg.get('pool', 0.0))
+                    g_factor = int(vr_cfg.get('g_factor', 10))
+                    pool_increment = (pool / g_factor) if g_factor > 0 else 0.0
                     new_v = vr_engine.calc_next_v(vr_cfg, deposit=regular_deposit)
                     vr_cfg['v_value'] = new_v
                     vr_cfg['last_v_update'] = datetime.date.today().isoformat()
                     cfg.set_vr_config(ticker, vr_cfg)
                     v_update_note = (
                         f"\n\n⏰ <b>V 자동 업데이트 완료!</b>\n"
-                        f"▫️ ${old_v:,.0f} → <b>${new_v:,.0f}</b> ({weeks_since}주 경과, 정기적립 ${regular_deposit:,.0f} 반영)"
+                        f"▫️ ${old_v:,.0f} → <b>${new_v:,.0f}</b> ({weeks_since}주 경과, 정기적립 ${regular_deposit:,.0f} 반영)\n"
+                        f"▫️ Pool 잔액: <b>${pool:,.0f}</b> (Pool/G = ${pool_increment:,.0f} 이번 V 증가분에 반영)"
                     )
 
                 ladder = vr_engine.get_ladder_orders(ticker, curr_p, qty, vr_cfg)
