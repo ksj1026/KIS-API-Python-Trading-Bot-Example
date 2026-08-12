@@ -1201,10 +1201,11 @@ async def scheduled_vr_check(context):
                             lines.append(f"❌ {icon} {o['qty']}주 × ${o['price']:.2f} — {res.get('msg1', '에러')}")
                         await asyncio.sleep(0.2)
 
+                    lot_size = ladder.get('lot_size', 1)
                     report = (
                         f"{msg}\n\n"
                         f"━━━━━━━━━━━━━━━━━━━\n"
-                        f"📋 <b>사다리 주문 전송 완료</b> (1주 × 지정가, 당일 유효)\n"
+                        f"📋 <b>사다리 주문 전송 완료</b> (lot {lot_size}주 × 지정가, 당일 유효)\n"
                         f"▫️ 성공 {ok_cnt}건 / 실패 {fail_cnt}건 — 현재가 ${curr_p:.2f}\n\n"
                         + "\n".join(lines)
                     )
