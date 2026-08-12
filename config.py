@@ -62,7 +62,8 @@ class ConfigManager:
             "AVWAP_EARLY_EXIT_CFG": "data/avwap_early_exit.json",    # 🚨 [V28.50] 조기 퇴근 듀얼 모드 스위치
             "AVWAP_EARLY_TARGET_CFG": "data/avwap_early_target.json", # 🚨 [V28.50] 조기 퇴근 목표 수익률 저장소
             "VR_CFG": "data/vr_config.json",  # NEW: VR5 밸류리밸런싱 설정 저장소
-            "VR_PENDING": "data/vr_pending_orders.json"  # NEW: VR5 사다리 주문 승인 대기열
+            "VR_PENDING": "data/vr_pending_orders.json",  # NEW: VR5 사다리 주문 승인 대기열
+            "VR_LEDGER": "data/vr_ledger.json"  # NEW: VR5 KIS 체결내역 동기화 원장 (Pool 잔액 역산용)
         }
         
         self.DEFAULT_SEED = {"SOXL": 6720.0, "TQQQ": 6720.0}
@@ -738,6 +739,7 @@ class ConfigManager:
             "enabled": False,
             "v_value": 0.0,
             "pool": 0.0,
+            "pool_initial": 0.0,  # NEW: Pool 잔액 역산의 기준점(처음 pool). 최초 1회만 설정, 이후 불변.
             "g_factor": 10,
             "band_pct": 15,
             "last_v_update": "",
@@ -745,9 +747,16 @@ class ConfigManager:
             "mode": "ACCUM",
             "deposit": 0.0,   # 정기 적립금 (V 업데이트 시 자동 반영)
             "start_date": "",  # VR 최초 시작일자
+            "dividends": 0.0,  # NEW: 누적 배당금 (Pool 잔액 계산에 가산)
         }
         saved = self._load_json(self.FILES["VR_CFG"], {}).get(ticker, {})
-        return {**defaults, **saved}
+        cfg = {**defaults, **saved}
+        # 🚨 [Pool 마이그레이션] pool_initial 미설정 상태에서 pool 값이 있으면, 그 값을
+        # "처음 pool"(기준점)로 승격시킨다. 과거 매매 이력은 소급 반영할 수 없으므로
+        # 이 시점 이후의 KIS 체결내역만으로 Pool 잔액이 역산된다.
+        if cfg["pool_initial"] <= 0 and cfg["pool"] > 0:
+            cfg["pool_initial"] = cfg["pool"]
+        return cfg
 
     def set_vr_config(self, ticker, cfg_data):
         """VR5 설정 저장."""
@@ -775,6 +784,48 @@ class ConfigManager:
         del d[ticker]
         self._save_json(self.FILES["VR_PENDING"], d)
         return entry.get("orders", [])
+
+    def get_vr_ledger(self, ticker):
+        """VR5 체결 원장 조회. KIS 체결내역 동기화(sync_vr_ledger)로만 채워짐."""
+        d = self._load_json(self.FILES["VR_LEDGER"], {})
+        return d.get(ticker, {"records": [], "last_synced": ""})
+
+    def sync_vr_ledger(self, ticker, date_str, execs):
+        """지정일(EST, YYYY-MM-DD) KIS 체결내역을 VR 원장에 1회만 반영(멱등).
+        같은 date_str로 이미 동기화됐으면 스킵하고 0을 반환."""
+        d = self._load_json(self.FILES["VR_LEDGER"], {})
+        entry = d.get(ticker, {"records": [], "last_synced": ""})
+        if entry.get("last_synced") == date_str:
+            return 0
+        added = 0
+        for ex in (execs or []):
+            try:
+                qty = int(float(ex.get('ft_ccld_qty', '0') or 0))
+                price = float(ex.get('ft_ccld_unpr3', '0') or 0)
+            except (TypeError, ValueError):
+                continue
+            if qty <= 0 or price <= 0:
+                continue
+            side = "BUY" if ex.get('sll_buy_dvsn_cd') == "02" else "SELL"
+            entry["records"].append({"date": date_str, "side": side, "qty": qty, "price": round(price, 4)})
+            added += 1
+        entry["last_synced"] = date_str
+        d[ticker] = entry
+        self._save_json(self.FILES["VR_LEDGER"], d)
+        return added
+
+    def get_vr_pool_state(self, ticker):
+        """Pool 잔액 역산: Pool_current = 처음pool(pool_initial) - (총매수금액 - 총매도금액) + 배당금
+        반환: (pool_current, total_buy, total_sell, net_trade)"""
+        vr_cfg = self.get_vr_config(ticker)
+        pool_initial = float(vr_cfg.get('pool_initial', 0.0))
+        dividends = float(vr_cfg.get('dividends', 0.0))
+        records = self.get_vr_ledger(ticker).get('records', [])
+        total_buy = sum(r['qty'] * r['price'] for r in records if r['side'] == 'BUY')
+        total_sell = sum(r['qty'] * r['price'] for r in records if r['side'] == 'SELL')
+        net_trade = total_buy - total_sell
+        pool_current = pool_initial - net_trade + dividends
+        return round(pool_current, 2), round(total_buy, 2), round(total_sell, 2), round(net_trade, 2)
     # ==========================================================
 
     def get_secret_mode(self): return self._load_file(self.FILES["SECRET_MODE"]) == 'True'

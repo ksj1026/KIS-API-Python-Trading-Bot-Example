@@ -1103,15 +1103,38 @@ async def scheduled_vr_check(context):
                 h = safe_holdings.get(ticker) or {}
                 qty = int(float(h.get('qty', 0)))
 
+                # 🚨 [Pool 잔액 역산] 직전 완료된 NYSE 세션의 KIS 체결내역을 VR 원장에 동기화.
+                # Pool_current = 처음pool(불변 기준점) - (총매수금액-총매도금액) + 배당금
+                # LOC/LIMIT 당일 주문 특성상 오늘 체결분은 아직 조회 불가하므로, 여기서
+                # 동기화되는 건 "어제까지" 확정 체결분 — V14 아침 동기화와 동일한 시차 구조.
+                est = pytz.timezone('US/Eastern')
+                now_est = datetime.datetime.now(est)
+                nyse = mcal.get_calendar('NYSE')
+                prev_schedule = nyse.schedule(
+                    start_date=(now_est - datetime.timedelta(days=10)).date(),
+                    end_date=(now_est - datetime.timedelta(days=1)).date()
+                )
+                if not prev_schedule.empty:
+                    last_session = prev_schedule.index[-1]
+                    sync_kis_str = last_session.strftime('%Y%m%d')
+                    sync_iso_str = last_session.strftime('%Y-%m-%d')
+                    execs = await asyncio.to_thread(broker.get_execution_history, ticker, sync_kis_str, sync_kis_str)
+                    cfg.sync_vr_ledger(ticker, sync_iso_str, execs or [])
+
+                pool_current, total_buy, total_sell, net_trade = cfg.get_vr_pool_state(ticker)
+                if vr_cfg.get('pool_initial', 0) > 0:
+                    vr_cfg['pool'] = pool_current
+                    cfg.set_vr_config(ticker, vr_cfg)
+
                 # V 업데이트 주기 도래 시 자동 반영 — 사다리 계산 전에 최신 V로 먼저 갱신
                 v_update_note = ""
                 if vr_engine.should_update_v(vr_cfg):
                     old_v = float(vr_cfg.get('v_value', 0.0))
                     weeks_since = vr_engine.weeks_since_v_update(vr_cfg)
                     regular_deposit = float(vr_cfg.get('deposit', 0.0))
-                    pool = float(vr_cfg.get('pool', 0.0))
+                    pool_initial = float(vr_cfg.get('pool_initial', 0.0))
                     g_factor = int(vr_cfg.get('g_factor', 10))
-                    pool_increment = (pool / g_factor) if g_factor > 0 else 0.0
+                    pool_increment = (pool_current / g_factor) if g_factor > 0 else 0.0
                     new_v = vr_engine.calc_next_v(vr_cfg, deposit=regular_deposit)
                     vr_cfg['v_value'] = new_v
                     vr_cfg['last_v_update'] = datetime.date.today().isoformat()
@@ -1119,7 +1142,8 @@ async def scheduled_vr_check(context):
                     v_update_note = (
                         f"\n\n⏰ <b>V 자동 업데이트 완료!</b>\n"
                         f"▫️ ${old_v:,.0f} → <b>${new_v:,.0f}</b> ({weeks_since}주 경과, 정기적립 ${regular_deposit:,.0f} 반영)\n"
-                        f"▫️ Pool 잔액: <b>${pool:,.0f}</b> (Pool/G = ${pool_increment:,.0f} 이번 V 증가분에 반영)"
+                        f"▫️ 처음 Pool ${pool_initial:,.0f} − 순매매 ${net_trade:,.0f} = <b>현재 Pool ${pool_current:,.0f}</b>\n"
+                        f"▫️ Pool/G = ${pool_increment:,.0f} (이번 V 증가분에 반영)"
                     )
 
                 ladder = vr_engine.get_ladder_orders(ticker, curr_p, qty, vr_cfg)
