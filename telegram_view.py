@@ -819,6 +819,21 @@ class TelegramView:
         msg = "\n".join(lines)
         return msg, InlineKeyboardMarkup(keyboard)
 
+    def format_vr_investment_summary(self, ticker, summary):
+        """VR5 '누적 정리' 요약 (2주 V 업데이트 주기에 맞춰 자동 발송). summary는 cfg.get_vr_investment_summary() 반환값."""
+        profit_sign = "+" if summary['profit'] >= 0 else ""
+        yield_sign = "+" if summary['yield_pct'] >= 0 else ""
+        return (
+            f"📊 <b>누적 정리</b>\n"
+            f"▫️ {ticker} 평가금: <b>${summary['current_value']:,.2f}</b>\n"
+            f"▫️ Pool: <b>${summary['pool']:,.2f}</b>\n"
+            f"▫️ 계좌총액: <b>${summary['account_total']:,.2f}</b>\n"
+            f"▫️ 투자금: <b>${summary['invested']:,.2f}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"▫️ 수익률: <b>{yield_sign}{summary['yield_pct']:.2f}%</b>\n"
+            f"▫️ 수익금: <b>{profit_sign}${summary['profit']:,.2f}</b>"
+        )
+
     def get_vr_settings_menu(self, ticker, vr_cfg, vr_engine):
         """VR5 개별 종목 설정 메뉴"""
         v = float(vr_cfg.get('v_value', 0))

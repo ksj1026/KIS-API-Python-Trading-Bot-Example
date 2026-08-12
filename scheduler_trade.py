@@ -1155,6 +1155,7 @@ async def scheduled_vr_check(context):
                     new_v = vr_engine.calc_next_v(vr_cfg, current_value=current_value, deposit=regular_deposit)
                     vr_cfg['v_value'] = new_v
                     vr_cfg['last_v_update'] = datetime.date.today().isoformat()
+                    vr_cfg['invested_deposits'] = round(float(vr_cfg.get('invested_deposits', 0.0)) + regular_deposit, 2)  # NEW: 투자원금 누적
                     cfg.set_vr_config(ticker, vr_cfg)
                     v_update_note = (
                         f"\n\n⏰ <b>V 자동 업데이트 완료!</b>\n"
@@ -1162,6 +1163,10 @@ async def scheduled_vr_check(context):
                         f"▫️ 처음 Pool ${pool_initial:,.0f} − 순매매 ${net_trade:,.0f} = <b>현재 Pool ${pool_current:,.0f}</b>\n"
                         f"▫️ Pool/G = ${pool_increment:,.0f} + (E-V1)/(2√G) = ${perf_term:+,.0f} (E=${current_value:,.0f})"
                     )
+                    # NEW: 2주 주기 '누적 정리' 리포트 (TQQQ평가금/Pool/계좌총액/투자금/수익률/수익금)
+                    from telegram_view import TelegramView
+                    summary = cfg.get_vr_investment_summary(ticker, current_value)
+                    v_update_note += "\n\n" + TelegramView().format_vr_investment_summary(ticker, summary)
 
                 ladder = vr_engine.get_ladder_orders(ticker, curr_p, qty, vr_cfg)
                 orders = ladder.get('orders', [])

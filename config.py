@@ -750,6 +750,8 @@ class ConfigManager:
             "dividends": 0.0,  # NEW: 누적 배당금 (Pool 잔액 계산에 가산)
             "last_g_update": "",  # NEW: G계수 마지막 자동 증가일자 (미설정 시 start_date로 폴백)
             "g_update_months": 6,  # NEW: G계수 자동 증가 주기(개월)
+            "v_initial": 0.0,  # NEW: 최초 V값(투자원금 계산의 기준점). 최초 1회만 설정, 이후 불변.
+            "invested_deposits": 0.0,  # NEW: V 업데이트 때마다 반영된 정기 적립금/추가 입출금의 누적합(투자원금 계산용)
         }
         saved = self._load_json(self.FILES["VR_CFG"], {}).get(ticker, {})
         cfg = {**defaults, **saved}
@@ -758,6 +760,10 @@ class ConfigManager:
         # 이 시점 이후의 KIS 체결내역만으로 Pool 잔액이 역산된다.
         if cfg["pool_initial"] <= 0 and cfg["pool"] > 0:
             cfg["pool_initial"] = cfg["pool"]
+        # 🚨 [투자금 마이그레이션] v_initial 미설정 상태(이 필드 도입 이전에 이미 초기 설정된
+        # 티커)에서 v_value가 있으면, 그 값을 "최초 V"(투자원금 계산 기준점)로 근사 승격시킨다.
+        if cfg["v_initial"] <= 0 and cfg["v_value"] > 0:
+            cfg["v_initial"] = cfg["v_value"]
         return cfg
 
     def set_vr_config(self, ticker, cfg_data):
@@ -828,6 +834,29 @@ class ConfigManager:
         net_trade = total_buy - total_sell
         pool_current = pool_initial - net_trade + dividends
         return round(pool_current, 2), round(total_buy, 2), round(total_sell, 2), round(net_trade, 2)
+
+    def get_vr_investment_summary(self, ticker, current_value):
+        """VR5 '누적 정리' 리포트용 요약 계산 (2주마다 자동 발송).
+        투자금 = 최초 V값(v_initial) + 처음 Pool(pool_initial) + 누적 적립/출금액(invested_deposits)
+        """
+        vr_cfg = self.get_vr_config(ticker)
+        pool_current, _, _, _ = self.get_vr_pool_state(ticker)
+        invested = (
+            float(vr_cfg.get('v_initial', 0.0))
+            + float(vr_cfg.get('pool_initial', 0.0))
+            + float(vr_cfg.get('invested_deposits', 0.0))
+        )
+        account_total = current_value + pool_current
+        profit = account_total - invested
+        yield_pct = (profit / invested * 100) if invested > 0 else 0.0
+        return {
+            "current_value": round(current_value, 2),
+            "pool": round(pool_current, 2),
+            "account_total": round(account_total, 2),
+            "invested": round(invested, 2),
+            "profit": round(profit, 2),
+            "yield_pct": round(yield_pct, 2),
+        }
     # ==========================================================
 
     def get_secret_mode(self): return self._load_file(self.FILES["SECRET_MODE"]) == 'True'

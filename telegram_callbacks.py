@@ -867,6 +867,8 @@ class TelegramCallbacks:
                     vr_cfg['start_date'] = today_str
                 if not vr_cfg.get('last_v_update'):
                     vr_cfg['last_v_update'] = today_str
+                if not vr_cfg.get('v_initial'):
+                    vr_cfg['v_initial'] = v_value  # NEW: 투자원금 계산 기준점(불변)
                 self.cfg.set_vr_config(ticker, vr_cfg)
                 msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine)
                 confirm_text = (
@@ -948,6 +950,7 @@ class TelegramCallbacks:
                 new_v = vr_engine.calc_next_v(vr_cfg, current_value=current_value, deposit=total_deposit)
                 vr_cfg['v_value'] = new_v
                 vr_cfg['last_v_update'] = datetime.date.today().isoformat()
+                vr_cfg['invested_deposits'] = round(float(vr_cfg.get('invested_deposits', 0.0)) + total_deposit, 2)  # NEW: 투자원금 누적
                 self.cfg.set_vr_config(ticker, vr_cfg)
                 msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine)
                 confirm_text = f"✅ <b>[VR5] {ticker} V 업데이트 완료!</b>\n▫️ ${v1:,.0f} → <b>${new_v:,.0f}</b>\n\n" + msg
