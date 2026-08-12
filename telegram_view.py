@@ -843,7 +843,7 @@ class TelegramView:
             f"▫️ 밴드: ±<b>{band_pct:.0f}%</b>\n"
             f"▫️ 정기 적립금: <b>{deposit_label}</b> (V 업데이트 시 자동 반영)\n"
             f"▫️ 마지막 V업데이트: {vr_cfg.get('last_v_update', '미설정')}{update_badge}\n"
-            f"▫️ 다음 V (예상): <b>${next_v:,.0f}</b>\n"
+            f"▫️ 다음 V (예상, Pool/G만 반영): <b>${next_v:,.0f}</b>\n"
         )
 
         keyboard = []
@@ -878,22 +878,30 @@ class TelegramView:
         ]
         return msg, InlineKeyboardMarkup(keyboard)
 
-    def get_vr_update_confirm(self, ticker, vr_cfg, vr_engine, extra_deposit=0.0):
-        """V 업데이트 확인 화면"""
+    def get_vr_update_confirm(self, ticker, vr_cfg, vr_engine, extra_deposit=0.0, current_value=None):
+        """V 업데이트 확인 화면 (라오어 원전 공식: V2 = V1 + Pool/G + (E-V1)/(2√G) + deposit)"""
         v1 = float(vr_cfg.get('v_value', 0))
         pool = float(vr_cfg.get('pool', 0))
         g = int(vr_cfg.get('g_factor', 10))
         regular_deposit = float(vr_cfg.get('deposit', 0))
         total_deposit = regular_deposit + extra_deposit
-        next_v = vr_engine.calc_next_v(vr_cfg, deposit=total_deposit)
+        next_v = vr_engine.calc_next_v(vr_cfg, current_value=current_value, deposit=total_deposit)
         increment = pool / g if g > 0 else 0.0
+        perf_term = ((current_value - v1) / (2 * (g ** 0.5))) if (current_value is not None and g > 0) else None
 
         msg = (
             f"🔄 <b>[ VR5 {ticker} V 업데이트 확인 ]</b>\n\n"
             f"▫️ 현재 V: <b>${v1:,.0f}</b>\n"
             f"▫️ Pool/G: ${pool:,.0f} / {g} = <b>+${increment:,.0f}</b>\n"
-            f"▫️ 정기 적립금: <b>${regular_deposit:+,.0f}</b>\n"
         )
+        if current_value is not None:
+            msg += (
+                f"▫️ 마지막 평가금 E: ${current_value:,.0f}\n"
+                f"▫️ (E-V1)/(2√G): <b>{'+' if perf_term >= 0 else ''}${perf_term:,.0f}</b>\n"
+            )
+        else:
+            msg += "▫️ ⚠️ 현재가 조회 실패 — 성능 스무딩 항 제외하고 계산\n"
+        msg += f"▫️ 정기 적립금: <b>${regular_deposit:+,.0f}</b>\n"
         if extra_deposit != 0:
             msg += f"▫️ 추가 입금/출금: <b>${extra_deposit:+,.0f}</b>\n"
         msg += (
@@ -901,8 +909,9 @@ class TelegramView:
             f"▫️ 새 V: <b>${next_v:,.0f}</b>\n\n"
             f"V 업데이트를 확정하시겠습니까?"
         )
+        cv_str = f"{current_value:.2f}" if current_value is not None else "0"
         keyboard = [
-            [InlineKeyboardButton("✅ 확정", callback_data=f"VR:CONFIRM_V:{ticker}:{extra_deposit}"),
+            [InlineKeyboardButton("✅ 확정", callback_data=f"VR:CONFIRM_V:{ticker}:{extra_deposit}:{cv_str}"),
              InlineKeyboardButton("❌ 취소", callback_data=f"VR:SETTINGS:{ticker}")],
         ]
         return msg, InlineKeyboardMarkup(keyboard)

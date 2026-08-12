@@ -938,11 +938,14 @@ class TelegramCallbacks:
             elif sub == "CONFIRM_V":
                 ticker = data[2] if len(data) > 2 else ""
                 extra_deposit = float(data[3]) if len(data) > 3 else 0.0
+                # 미리보기(get_vr_update_confirm) 시점에 스냅샷한 E(마지막 평가금)를 그대로
+                # 재사용 — 확정 시점에 다시 조회하면 미리보기와 다른 값이 나올 수 있음.
+                current_value = float(data[4]) if len(data) > 4 and float(data[4]) > 0 else None
                 vr_cfg = self.cfg.get_vr_config(ticker)
                 v1 = float(vr_cfg.get('v_value', 0))
                 regular_deposit = float(vr_cfg.get('deposit', 0))
                 total_deposit = regular_deposit + extra_deposit
-                new_v = vr_engine.calc_next_v(vr_cfg, deposit=total_deposit)
+                new_v = vr_engine.calc_next_v(vr_cfg, current_value=current_value, deposit=total_deposit)
                 vr_cfg['v_value'] = new_v
                 vr_cfg['last_v_update'] = datetime.date.today().isoformat()
                 self.cfg.set_vr_config(ticker, vr_cfg)

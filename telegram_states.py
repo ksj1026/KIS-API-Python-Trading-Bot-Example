@@ -260,8 +260,16 @@ class TelegramStates:
                     ticker = state[len("VR_UPDATE_V_"):]
                     vr_cfg = self.cfg.get_vr_config(ticker)
                     extra_deposit = round(val, 2)  # 음수(출금)도 허용
+                    # 🚨 [E(마지막 평가금) 스냅샷] 라오어 원전 공식의 성능 스무딩 항
+                    # (E-V1)/(2√G) 계산을 위해 현재가×보유수량을 여기서 1회 확정한다.
+                    # 이 스냅샷 값을 콜백데이터로 CONFIRM_V까지 그대로 전달해, 확정
+                    # 시점에 다시 조회해 미리보기와 다른 값이 나오는 것을 방지한다.
+                    _, holdings = await asyncio.to_thread(self.broker.get_account_balance)
+                    qty = int(float((holdings or {}).get(ticker, {}).get('qty', 0)))
+                    curr_p = float(await asyncio.to_thread(self.broker.get_current_price, ticker) or 0.0)
+                    current_value = round(qty * curr_p, 2) if curr_p > 0 else None
                     # 확인 화면 띄우기
-                    msg, markup = self.view.get_vr_update_confirm(ticker, vr_cfg, vr_engine, extra_deposit=extra_deposit)
+                    msg, markup = self.view.get_vr_update_confirm(ticker, vr_cfg, vr_engine, extra_deposit=extra_deposit, current_value=current_value)
                     del controller.user_states[chat_id]
                     return await update.message.reply_text(msg, reply_markup=markup, parse_mode='HTML')
 

@@ -3,12 +3,13 @@
 # NEW: 라오어 밸류리밸런싱(Value Rebalancing) 투자법 구현
 # - V: 목표 포트폴리오 가치
 # - 밴드: V×(1±band_pct%) 범위 이탈 시 매수/매도
-# - V 업데이트 주기: 2주마다 (V2 = V1 + Pool/G ± deposit)
+# - V 업데이트 주기: 2주마다 (V2 = V1 + Pool/G + (E-V1)/(2*sqrt(G)) + deposit)
 # - G: 분할 계수 (적립식=10)
 # - 주문 방식: 지정가(LIMIT)
 # ==========================================================
 import datetime
 import logging
+import math
 
 
 class VRStrategy:
@@ -94,19 +95,26 @@ class VRStrategy:
         table += f"\n총 매수 {len(buy_lines)}건 / 매도 {len(sell_lines)}건 — 주문을 실행하시겠습니까?"
         return table
 
-    def calc_next_v(self, vr_cfg, deposit=0.0):
+    def calc_next_v(self, vr_cfg, current_value=None, deposit=0.0):
         """
-        다음 V값 계산: V2 = V1 + Pool/G ± deposit
-        - Pool: 별도 관리 투자 풀
+        다음 V값 계산 (라오어 원전 공식):
+        V2 = V1 + Pool/G + (E - V1)/(2*sqrt(G)) + deposit
+        - E(current_value): 마지막 평가금 (현재 보유수량 × 현재가). None이면 성능
+          스무딩 항 없이(구 공식과 동일하게) 계산 — 가격 조회가 불가한 폴백 경로용.
+        - Pool: 마지막 Pool 잔액
         - G   : 분할 계수 (적립식=10)
-        - deposit: 이번 주기 추가 입금(+) / 출금(-)
+        - deposit: 정기 적립금 + 이번 주기 추가 입금(+)/출금(-)
         """
         v1 = float(vr_cfg.get('v_value', 0))
         pool = float(vr_cfg.get('pool', 0))
         g = int(vr_cfg.get('g_factor', 10))
 
-        v_increment = (pool / g) if g > 0 else 0.0
-        v2 = v1 + v_increment + deposit
+        pool_term = (pool / g) if g > 0 else 0.0
+        perf_term = 0.0
+        if current_value is not None and g > 0:
+            perf_term = (float(current_value) - v1) / (2 * math.sqrt(g))
+
+        v2 = v1 + pool_term + perf_term + deposit
         return round(max(v2, 0), 2)
 
     def should_update_v(self, vr_cfg):

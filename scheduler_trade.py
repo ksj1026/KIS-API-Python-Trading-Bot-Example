@@ -1135,7 +1135,11 @@ async def scheduled_vr_check(context):
                     pool_initial = float(vr_cfg.get('pool_initial', 0.0))
                     g_factor = int(vr_cfg.get('g_factor', 10))
                     pool_increment = (pool_current / g_factor) if g_factor > 0 else 0.0
-                    new_v = vr_engine.calc_next_v(vr_cfg, deposit=regular_deposit)
+                    # 라오어 원전 공식: V2 = V1 + Pool/G + (E-V1)/(2√G) + deposit
+                    # E(마지막 평가금) = 현재 보유수량 × 현재가
+                    current_value = qty * curr_p
+                    perf_term = (current_value - old_v) / (2 * (g_factor ** 0.5)) if g_factor > 0 else 0.0
+                    new_v = vr_engine.calc_next_v(vr_cfg, current_value=current_value, deposit=regular_deposit)
                     vr_cfg['v_value'] = new_v
                     vr_cfg['last_v_update'] = datetime.date.today().isoformat()
                     cfg.set_vr_config(ticker, vr_cfg)
@@ -1143,7 +1147,7 @@ async def scheduled_vr_check(context):
                         f"\n\n⏰ <b>V 자동 업데이트 완료!</b>\n"
                         f"▫️ ${old_v:,.0f} → <b>${new_v:,.0f}</b> ({weeks_since}주 경과, 정기적립 ${regular_deposit:,.0f} 반영)\n"
                         f"▫️ 처음 Pool ${pool_initial:,.0f} − 순매매 ${net_trade:,.0f} = <b>현재 Pool ${pool_current:,.0f}</b>\n"
-                        f"▫️ Pool/G = ${pool_increment:,.0f} (이번 V 증가분에 반영)"
+                        f"▫️ Pool/G = ${pool_increment:,.0f} + (E-V1)/(2√G) = ${perf_term:+,.0f} (E=${current_value:,.0f})"
                     )
 
                 ladder = vr_engine.get_ladder_orders(ticker, curr_p, qty, vr_cfg)
