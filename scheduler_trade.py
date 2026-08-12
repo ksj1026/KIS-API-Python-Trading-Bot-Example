@@ -1126,6 +1126,19 @@ async def scheduled_vr_check(context):
                     vr_cfg['pool'] = pool_current
                     cfg.set_vr_config(ticker, vr_cfg)
 
+                # G계수 자동 증가(기본 6개월 주기) — Pool/G, (E-V1)/(2√G) 계산에 즉시
+                # 반영되도록 V 업데이트보다 먼저 처리. V 업데이트 주기(2주)와 무관하게
+                # 독립적으로 도래 여부를 체크한다.
+                g_update_note = ""
+                if vr_engine.should_update_g(vr_cfg):
+                    old_g = int(vr_cfg.get('g_factor', 10))
+                    months_since_g = vr_engine.months_since_g_update(vr_cfg)
+                    new_g = old_g + 1
+                    vr_cfg['g_factor'] = new_g
+                    vr_cfg['last_g_update'] = datetime.date.today().isoformat()
+                    cfg.set_vr_config(ticker, vr_cfg)
+                    g_update_note = f"\n\n📐 <b>G계수 자동 증가!</b>\n▫️ {old_g} → <b>{new_g}</b> ({months_since_g}개월 경과)"
+
                 # V 업데이트 주기 도래 시 자동 반영 — 사다리 계산 전에 최신 V로 먼저 갱신
                 v_update_note = ""
                 if vr_engine.should_update_v(vr_cfg):
@@ -1162,6 +1175,7 @@ async def scheduled_vr_check(context):
                     f"▫️ V 타겟: <b>${v:,.0f}</b>\n"
                     f"▫️ 밴드: ${low:,.0f} ~ ${high:,.0f}\n"
                     f"▫️ 포트폴리오: ${portfolio:,.0f} ({qty}주 × ${curr_p:.2f})"
+                    + g_update_note
                     + v_update_note
                 )
 
@@ -1195,8 +1209,8 @@ async def scheduled_vr_check(context):
                         + "\n".join(lines)
                     )
                     await context.bot.send_message(chat_id=chat_id, text=report, parse_mode='HTML')
-                elif v_update_note:
-                    # 사다리 없음(범위 밖/보유 0 등) 알림은 생략하되, V 자동 업데이트가 있었으면 결과 발송
+                elif v_update_note or g_update_note:
+                    # 사다리 없음(범위 밖/보유 0 등) 알림은 생략하되, V/G 자동 업데이트가 있었으면 결과 발송
                     await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
 
     try:

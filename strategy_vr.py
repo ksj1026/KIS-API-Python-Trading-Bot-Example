@@ -139,3 +139,37 @@ class VRStrategy:
             return round((datetime.date.today() - last_dt).days / 7, 1)
         except Exception:
             return None
+
+    @staticmethod
+    def _add_months(d, months):
+        """datetime.date에 개월수를 더한 날짜 반환 (달력월 기준, 외부 라이브러리 불필요)"""
+        month_index = d.month - 1 + months
+        year = d.year + month_index // 12
+        month = month_index % 12 + 1
+        is_leap = (year % 4 == 0 and (year % 100 != 0 or year % 400 == 0))
+        days_in_month = [31, 29 if is_leap else 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]
+        day = min(d.day, days_in_month[month - 1])
+        return datetime.date(year, month, day)
+
+    def should_update_g(self, vr_cfg):
+        """G계수 자동 증가 주기(기본 6개월) 도달 여부 체크. last_g_update 미설정 시 start_date로 폴백."""
+        last_str = vr_cfg.get('last_g_update') or vr_cfg.get('start_date', '')
+        if not last_str:
+            return False
+        try:
+            last_dt = datetime.date.fromisoformat(last_str)
+            months = int(vr_cfg.get('g_update_months', 6))
+            return datetime.date.today() >= self._add_months(last_dt, months)
+        except Exception:
+            return False
+
+    def months_since_g_update(self, vr_cfg):
+        """마지막 G계수 증가 이후 경과 개월 수 (소수점 1자리, 30.44일/월 근사)"""
+        last_str = vr_cfg.get('last_g_update') or vr_cfg.get('start_date', '')
+        if not last_str:
+            return None
+        try:
+            last_dt = datetime.date.fromisoformat(last_str)
+            return round((datetime.date.today() - last_dt).days / 30.44, 1)
+        except Exception:
+            return None

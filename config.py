@@ -748,6 +748,8 @@ class ConfigManager:
             "deposit": 0.0,   # 정기 적립금 (V 업데이트 시 자동 반영)
             "start_date": "",  # VR 최초 시작일자
             "dividends": 0.0,  # NEW: 누적 배당금 (Pool 잔액 계산에 가산)
+            "last_g_update": "",  # NEW: G계수 마지막 자동 증가일자 (미설정 시 start_date로 폴백)
+            "g_update_months": 6,  # NEW: G계수 자동 증가 주기(개월)
         }
         saved = self._load_json(self.FILES["VR_CFG"], {}).get(ticker, {})
         cfg = {**defaults, **saved}
