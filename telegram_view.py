@@ -831,7 +831,8 @@ class TelegramView:
             f"▫️ 투자금: <b>${summary['invested']:,.2f}</b>\n"
             f"━━━━━━━━━━━━━━━━━━━\n"
             f"▫️ 수익률: <b>{yield_sign}{summary['yield_pct']:.2f}%</b>\n"
-            f"▫️ 수익금: <b>{profit_sign}${summary['profit']:,.2f}</b>"
+            f"▫️ 수익금: <b>{profit_sign}${summary['profit']:,.2f}</b>\n"
+            f"▫️ 배수: <b>{summary['multiple']:.2f}배</b> (계좌총액/투자금)"
         )
 
     def get_vr_settings_menu(self, ticker, vr_cfg, vr_engine):

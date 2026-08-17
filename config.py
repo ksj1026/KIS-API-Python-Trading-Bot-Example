@@ -849,6 +849,7 @@ class ConfigManager:
         account_total = current_value + pool_current
         profit = account_total - invested
         yield_pct = (profit / invested * 100) if invested > 0 else 0.0
+        multiple = (account_total / invested) if invested > 0 else 0.0
         return {
             "current_value": round(current_value, 2),
             "pool": round(pool_current, 2),
@@ -856,6 +857,7 @@ class ConfigManager:
             "invested": round(invested, 2),
             "profit": round(profit, 2),
             "yield_pct": round(yield_pct, 2),
+            "multiple": round(multiple, 2),
         }
     # ==========================================================
 
