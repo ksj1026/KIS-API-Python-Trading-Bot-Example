@@ -1179,7 +1179,8 @@ async def scheduled_vr_check(context):
                     f"📊 <b>[VR5] {ticker} 일일 사다리 재장전</b>\n"
                     f"▫️ V 타겟: <b>${v:,.0f}</b>\n"
                     f"▫️ 밴드: ${low:,.0f} ~ ${high:,.0f}\n"
-                    f"▫️ 포트폴리오: ${portfolio:,.0f} ({qty}주 × ${curr_p:.2f})"
+                    f"▫️ 포트폴리오: ${portfolio:,.0f} ({qty}주 × ${curr_p:.2f})\n"
+                    f"▫️ Pool 잔액: <b>${pool_current:,.2f}</b>"
                     + g_update_note
                     + v_update_note
                 )
