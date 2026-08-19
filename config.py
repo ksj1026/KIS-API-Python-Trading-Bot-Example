@@ -826,16 +826,18 @@ class ConfigManager:
         return added
 
     def get_vr_pool_state(self, ticker):
-        """Pool 잔액 역산: Pool_current = 처음pool(pool_initial) - (총매수금액 - 총매도금액) + 배당금
+        """Pool 잔액 역산: Pool_current = 처음pool(pool_initial) + 누적 적립금(invested_deposits) - (총매수금액 - 총매도금액) + 배당금
+        정기 적립금은 V 업데이트 시 실제 계좌에 새 현금으로 들어와 Pool(매매 재원)에 합산되고, 이후 매매(net_trade)로 소진/회수된다.
         반환: (pool_current, total_buy, total_sell, net_trade)"""
         vr_cfg = self.get_vr_config(ticker)
         pool_initial = float(vr_cfg.get('pool_initial', 0.0))
         dividends = float(vr_cfg.get('dividends', 0.0))
+        deposits = float(vr_cfg.get('invested_deposits', 0.0))  # NEW: 누적 적립/입출금(Pool 재원으로 합산)
         records = self.get_vr_ledger(ticker).get('records', [])
         total_buy = sum(r['qty'] * r['price'] for r in records if r['side'] == 'BUY')
         total_sell = sum(r['qty'] * r['price'] for r in records if r['side'] == 'SELL')
         net_trade = total_buy - total_sell
-        pool_current = pool_initial - net_trade + dividends
+        pool_current = pool_initial + deposits - net_trade + dividends
         return round(pool_current, 2), round(total_buy, 2), round(total_sell, 2), round(net_trade, 2)
 
     def get_vr_investment_summary(self, ticker, current_value):

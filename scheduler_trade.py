@@ -1155,12 +1155,15 @@ async def scheduled_vr_check(context):
                     new_v = vr_engine.calc_next_v(vr_cfg, current_value=current_value, deposit=regular_deposit)
                     vr_cfg['v_value'] = new_v
                     vr_cfg['last_v_update'] = datetime.date.today().isoformat()
-                    vr_cfg['invested_deposits'] = round(float(vr_cfg.get('invested_deposits', 0.0)) + regular_deposit, 2)  # NEW: 투자원금 누적
+                    vr_cfg['invested_deposits'] = round(float(vr_cfg.get('invested_deposits', 0.0)) + regular_deposit, 2)  # NEW: 투자원금 누적 + Pool 재원으로도 합산
                     cfg.set_vr_config(ticker, vr_cfg)
+                    deposits_total = float(vr_cfg.get('invested_deposits', 0.0))
+                    # 적립금이 Pool 재원으로 새로 합산됐으므로 최신 상태로 재계산 — 이후 msg의 "Pool 잔액" 헤더가 이 값과 일치해야 함
+                    pool_current, _, _, _ = cfg.get_vr_pool_state(ticker)
                     v_update_note = (
                         f"\n\n⏰ <b>V 자동 업데이트 완료!</b>\n"
                         f"▫️ ${old_v:,.0f} → <b>${new_v:,.0f}</b> ({weeks_since}주 경과, 정기적립 ${regular_deposit:,.0f} 반영)\n"
-                        f"▫️ 처음 Pool ${pool_initial:,.0f} − 순매매 ${net_trade:,.0f} = <b>현재 Pool ${pool_current:,.0f}</b>\n"
+                        f"▫️ 처음 Pool ${pool_initial:,.0f} + 누적 적립금 ${deposits_total:,.0f} − 누적 순매매 ${net_trade:,.0f} = <b>현재 Pool ${pool_current:,.0f}</b>\n"
                         f"▫️ Pool/G = ${pool_increment:,.0f} + (E-V1)/(2√G) = ${perf_term:+,.0f} (E=${current_value:,.0f})"
                     )
                     # NEW: 2주 주기 '누적 정리' 리포트 (TQQQ평가금/Pool/계좌총액/투자금/수익률/수익금)
