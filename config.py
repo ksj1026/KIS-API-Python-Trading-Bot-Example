@@ -517,39 +517,42 @@ class ConfigManager:
     def calculate_v14_state(self, ticker):
         ledger = self.get_ledger()
         target_recs = sorted([r for r in ledger if r['ticker'] == ticker], key=lambda x: x.get('id', 0))
-        
+
         seed = self.get_seed(ticker)
         split = self.get_split_count(ticker)
         base_portion = seed / split if split > 0 else 1
-        
+        fee_rate = self.get_fee(ticker) / 100.0  # NEW: 왕복 수수료 반영 — 잔액/예산 계산이 실제 체결 원가와 일치하도록
+
         holdings = 0
         rem_cash = seed
         total_invested = 0.0
-        
+
         for r in target_recs:
             if holdings == 0:
                 rem_cash = seed
                 total_invested = 0.0
-                
+
             qty = r['qty']
             amt = qty * r['price']
-            
+
             if r['side'] == 'BUY':
-                rem_cash -= amt
+                net_amt = amt * (1.0 + fee_rate)
+                rem_cash -= net_amt
                 holdings += qty
-                total_invested += amt
-                
+                total_invested += net_amt
+
             elif r['side'] == 'SELL':
-                if qty >= holdings: 
+                net_amt = amt * (1.0 - fee_rate)
+                if qty >= holdings:
                     holdings = 0
                     rem_cash = seed
                     total_invested = 0.0
-                else: 
+                else:
                     if holdings > 0:
                         avg_price = total_invested / holdings
                         total_invested -= (qty * avg_price)
                     holdings -= qty
-                    rem_cash += amt
+                    rem_cash += net_amt
                     
         avg_price = total_invested / holdings if holdings > 0 else 0.0
         t_val = (holdings * avg_price) / base_portion if base_portion > 0 else 0.0
