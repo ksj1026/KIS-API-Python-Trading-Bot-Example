@@ -840,7 +840,8 @@ class TelegramCallbacks:
             elif sub == "SETTINGS":
                 ticker = data[2] if len(data) > 2 else ""
                 vr_cfg = self.cfg.get_vr_config(ticker)
-                msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine)
+                pool_live, _, _, _ = self.cfg.get_vr_pool_state(ticker)
+                msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine, pool_override=pool_live)
                 await query.edit_message_text(msg, reply_markup=markup, parse_mode='HTML')
 
             elif sub == "INIT_START":
@@ -870,7 +871,8 @@ class TelegramCallbacks:
                 if not vr_cfg.get('v_initial'):
                     vr_cfg['v_initial'] = v_value  # NEW: 투자원금 계산 기준점(불변)
                 self.cfg.set_vr_config(ticker, vr_cfg)
-                msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine)
+                pool_live, _, _, _ = self.cfg.get_vr_pool_state(ticker)
+                msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine, pool_override=pool_live)
                 confirm_text = (
                     f"✅ <b>[VR5] {ticker} 초기 설정 완료!</b>\n"
                     f"▫️ {qty}주 × ${avg_price:.2f} = V <b>${v_value:,.0f}</b>\n"
@@ -950,9 +952,10 @@ class TelegramCallbacks:
                 new_v = vr_engine.calc_next_v(vr_cfg, current_value=current_value, deposit=total_deposit)
                 vr_cfg['v_value'] = new_v
                 vr_cfg['last_v_update'] = datetime.date.today().isoformat()
-                vr_cfg['invested_deposits'] = round(float(vr_cfg.get('invested_deposits', 0.0)) + total_deposit, 2)  # NEW: 투자원금 누적
+                vr_cfg['invested_deposits'] = round(float(vr_cfg.get('invested_deposits', 0.0)) + total_deposit, 2)  # NEW: 투자원금 누적 + Pool 재원으로도 합산
                 self.cfg.set_vr_config(ticker, vr_cfg)
-                msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine)
+                pool_live, _, _, _ = self.cfg.get_vr_pool_state(ticker)
+                msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg, vr_engine, pool_override=pool_live)
                 confirm_text = f"✅ <b>[VR5] {ticker} V 업데이트 완료!</b>\n▫️ ${v1:,.0f} → <b>${new_v:,.0f}</b>\n\n" + msg
                 await query.edit_message_text(confirm_text, reply_markup=markup, parse_mode='HTML')
 
@@ -1010,7 +1013,8 @@ class TelegramCallbacks:
                     else:
                         # 사다리 없음(범위 밖/보유 0 등) — 결과만 표시 후 설정 화면 복귀
                         vr_cfg_refresh = self.cfg.get_vr_config(ticker)
-                        settings_msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg_refresh, vr_engine)
+                        pool_live, _, _, _ = self.cfg.get_vr_pool_state(ticker)
+                        settings_msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg_refresh, vr_engine, pool_override=pool_live)
                         await query.edit_message_text(result_msg + "\n\n" + settings_msg, reply_markup=markup, parse_mode='HTML')
 
                 except Exception as e:
@@ -1056,6 +1060,7 @@ class TelegramCallbacks:
                     + "\n".join(ok_lines + fail_lines)
                 )
                 vr_cfg_refresh = self.cfg.get_vr_config(ticker)
-                settings_msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg_refresh, vr_engine)
+                pool_live, _, _, _ = self.cfg.get_vr_pool_state(ticker)
+                settings_msg, markup = self.view.get_vr_settings_menu(ticker, vr_cfg_refresh, vr_engine, pool_override=pool_live)
                 await query.edit_message_text(result_msg + "\n\n" + settings_msg, reply_markup=markup, parse_mode='HTML')
         # ==========================================================

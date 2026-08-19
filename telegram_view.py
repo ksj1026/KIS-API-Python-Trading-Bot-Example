@@ -835,10 +835,10 @@ class TelegramView:
             f"▫️ 배수: <b>{summary['multiple']:.2f}배</b> (계좌총액/투자금)"
         )
 
-    def get_vr_settings_menu(self, ticker, vr_cfg, vr_engine):
-        """VR5 개별 종목 설정 메뉴"""
+    def get_vr_settings_menu(self, ticker, vr_cfg, vr_engine, pool_override=None):
+        """VR5 개별 종목 설정 메뉴. pool_override가 주어지면(실시간 역산값) 캐시된 vr_cfg['pool'] 대신 그 값을 표시한다."""
         v = float(vr_cfg.get('v_value', 0))
-        pool = float(vr_cfg.get('pool', 0))
+        pool = float(pool_override) if pool_override is not None else float(vr_cfg.get('pool', 0))
         g = int(vr_cfg.get('g_factor', 10))
         band_pct = float(vr_cfg.get('band_pct', 15))
         next_v = vr_engine.calc_next_v(vr_cfg)
