@@ -38,6 +38,39 @@ class V14Strategy:
         ceiling = self._floor(base_price * (1 + self.PRICE_COLLAR_PCT))
         return min(target_price, ceiling)
 
+    # 🧹 [줍줍 사다리 동적 증설] 과거엔 1주씩 담는 칸이 5개로 고정되어 있어, 평단가가
+    # 낮아질수록(=1회 매수기준으로 살 수 있는 주식 수가 늘수록) 5칸으로는 예산의
+    # 극히 일부만 쓰고 끝나버리는 문제가 있었다. 1회 매수기준(one_portion_amt)
+    # 예산이 소진될 때까지 칸을 계속 늘리되, 가격이 현재가(base_price) 대비
+    # JUP_PRICE_FLOOR_PCT(기본 15%) 밑으로 떨어지거나 JUP_MAX_ORDERS(과도한 주문
+    # 폭주 방지)에 도달하면 멈춘다. (실매매 확인 결과 평단가 기준 -50%는 과도하게
+    # 많은 주문이 생성되어, 사용자가 "현재가 기준 -15%"로 조정 요청함)
+    JUP_MAX_ORDERS = 30
+    JUP_PRICE_FLOOR_PCT = 0.15
+
+    def _build_jup_ladder(self, one_portion_amt, base_qty, price_ceiling, base_price, desc_fmt):
+        orders = []
+        if one_portion_amt <= 0 or price_ceiling <= 0:
+            return orders
+        base_qty = max(0, int(base_qty))
+        floor_anchor = base_price if base_price > 0 else price_ceiling
+        price_floor = floor_anchor * (1 - self.JUP_PRICE_FLOOR_PCT)
+        cumulative = 0.0
+        i = 1
+        while cumulative < one_portion_amt and len(orders) < self.JUP_MAX_ORDERS:
+            raw_price = self._floor(one_portion_amt / (base_qty + i))
+            capped_price = round(min(raw_price, price_ceiling - 0.01), 2)
+            if capped_price < price_floor:
+                break
+            safe_price = max(0.01, capped_price)
+            safe_price = self._apply_price_collar(safe_price, base_price)
+            if safe_price <= 0:
+                break
+            orders.append({"side": "BUY", "price": safe_price, "qty": int(1), "type": "LOC", "desc": desc_fmt.format(i)})
+            cumulative += safe_price
+            i += 1
+        return orders
+
     # NEW: [V28.17 스냅샷 엔진 이식] V14 오리지널 모드 스냅샷 저장(Lock-on) 로직
     def save_daily_snapshot(self, ticker, plan_data):
         # MODIFIED: [V28.26] KST/UTC 의존성 제거 및 EST/EDT 락온
@@ -281,13 +314,7 @@ class V14Strategy:
                         core_orders.append({"side": "SELL", "price": star_price, "qty": sell_qty, "type": "LOC", "desc": "🌟별값매도"})
 
                     if one_portion_amt > 0 and buy_price > 0:
-                        for i in range(1, 6):
-                            target_qty = buy_qty + i 
-                            raw_jup_price = self._floor(one_portion_amt / target_qty)
-                            capped_jup_price = min(raw_jup_price, buy_price - 0.01)
-                            jup_price = max(0.01, round(capped_jup_price, 2))
-                            if jup_price > 0:
-                                bonus_orders.append({"side": "BUY", "price": jup_price, "qty": int(1), "type": "LOC", "desc": f"🧹리버스줍줍({i})" })
+                        bonus_orders.extend(self._build_jup_ladder(one_portion_amt, buy_qty, buy_price, base_price, "🧹리버스줍줍({})"))
                 
                 if lock_s_sell: process_status = "🔫리버스(명중)"
 
@@ -349,13 +376,7 @@ class V14Strategy:
             if one_portion_amt > 0 and (is_simulation or not is_money_short):
                 base_qty_for_jup = math.floor(one_portion_amt / avg_price) if avg_price > 0 else 0
                 if base_qty_for_jup > 0:
-                    for i in range(1, 6):
-                        jup_price = self._floor(one_portion_amt / (base_qty_for_jup + i))
-                        capped_jup_price = round(min(jup_price, avg_price - 0.01), 2)
-                        if capped_jup_price > 0:
-                            safe_jup_price = max(0.01, capped_jup_price)
-                            safe_jup_price = self._apply_price_collar(safe_jup_price, base_price)
-                            bonus_orders.append({"side": "BUY", "price": safe_jup_price, "qty": int(1), "type": "LOC", "desc": f"🧹줍줍({i})"})
+                    bonus_orders.extend(self._build_jup_ladder(one_portion_amt, base_qty_for_jup, avg_price, base_price, "🧹줍줍({})"))
 
             if qty > 0:
                 if lock_s_sell:
