@@ -666,28 +666,47 @@ class KoreaInvestmentBroker:
         odno_map = {}
         fk200, nk200 = "", ""
         
-        for attempt in range(10): 
+        prev_page_signature = None
+        for attempt in range(10):
+            # 🚨 [BUGFIX] 페이지네이션 커서 정체(Stuck Cursor) 방어: KIS가 "다음 페이지
+            # 있음"(tr_cont='M'/'F') 신호를 주면서도 커서(nk200)를 직전과 동일하게
+            # 돌려주면, 다음 루프에서 같은 페이지를 또 읽어 odno_map에 수량이 중복
+            # 누적된다(관측: 10회 루프 전부 동일 페이지 재수신 시 체결수량 10배 뻥튀기).
+            # 커서가 실제로 전진했는지 직전 값과 비교해 전진하지 않으면 즉시 중단한다.
+            prev_nk200 = nk200
             params = {
                 "CANO": self.cano, "ACNT_PRDT_CD": self.acnt_prdt_cd, "PDNO": ticker,
-                "ORD_STRT_DT": start_date, "ORD_END_DT": end_date, "SLL_BUY_DVSN": "00",      
+                "ORD_STRT_DT": start_date, "ORD_END_DT": end_date, "SLL_BUY_DVSN": "00",
                 "CCLD_NCCS_DVSN": "00", "OVRS_EXCG_CD": excg_cd, "SORT_SQN": "DS",
                 "ORD_DT": "", "ORD_GNO_BRNO": "", "ODNO": "", "CTX_AREA_FK200": fk200, "CTX_AREA_NK200": nk200
             }
-            
+
             headers = self._get_header("TTTS3035R")
             url = f"{self.base_url}/uapi/overseas-stock/v1/trading/inquire-ccnl"
             res, resp_json = self._api_request("GET", url, headers, params=params)
-            
+
             if res and resp_json.get('rt_cd') == '0':
                 output = resp_json.get('output', [])
-                if isinstance(output, dict): output = [output] 
+                if isinstance(output, dict): output = [output]
+
+                # 🚨 [BUGFIX] 페이지 내용 지문(odno+수량+단가) 비교: 커서가 바뀌었더라도
+                # 이번 페이지가 직전 페이지와 내용이 완전히 동일하면 같은 체결 내역이
+                # 재수신된 것으로 간주하여 병합 없이 즉시 중단한다(중복 합산 2중 방어).
+                page_signature = tuple(sorted(
+                    (item.get('odno', ''), item.get('ft_ccld_qty', ''), item.get('ft_ccld_unpr3', ''))
+                    for item in output
+                ))
+                if output and page_signature == prev_page_signature:
+                    break
+                prev_page_signature = page_signature
+
                 for item in output:
                     try:
                         raw_qty = item.get('ft_ccld_qty') or '0'
                         raw_unpr = item.get('ft_ccld_unpr3') or '0'
                         item_qty = float(raw_qty)
                         item_price = float(raw_unpr)
-                        
+
                         if item_qty > 0:
                             odno = item.get('odno') or ''
                             if not odno:
@@ -705,18 +724,18 @@ class KoreaInvestmentBroker:
                             else:
                                 odno_map[odno]["total_qty"] += item_qty
                                 odno_map[odno]["total_amt"] += (item_qty * item_price)
-                                
+
                     except (TypeError, ValueError) as e:
                         continue
-                        
+
                 tr_cont = res.headers.get('tr_cont', '') if hasattr(res, 'headers') else ''
                 fk200 = resp_json.get('ctx_area_fk200', '').strip()
                 nk200 = resp_json.get('ctx_area_nk200', '').strip()
-                
-                if tr_cont in ['M', 'F'] and nk200:
-                    time.sleep(0.3) 
+
+                if tr_cont in ['M', 'F'] and nk200 and nk200 != prev_nk200:
+                    time.sleep(0.3)
                     continue
-                else: break 
+                else: break
             else:
                 break
 
