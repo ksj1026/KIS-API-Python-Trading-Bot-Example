@@ -258,35 +258,14 @@ async def scheduled_force_reset(context):
 # 🚀 [V27.24] 스마트 딜레이 엔진: 모든 아침 정산을 KIS 배치 완료 시점인 10:00 KST로 강제 시프트
 # ==========================================================
 
-async def delayed_auto_sync(context):
-    """17:00 KST에 최종 격발되는 실질적 정산 엔진"""
-    await run_auto_sync(context, "17:00")
-
-async def scheduled_auto_sync_summer(context):
-    kst = pytz.timezone('Asia/Seoul')
-    now = datetime.datetime.now(kst)
-
-    if now.hour < 17:
-        target_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
-        delay = (target_time - now).total_seconds()
-        context.job_queue.run_once(delayed_auto_sync, delay, data=context.job.data, chat_id=context.job.chat_id)
-        logging.info(f"⏳ [정산 지연 엔진 가동] 동기화 스케줄을 17:00로 시프트합니다. ({delay}초 뒤 격발)")
-        return
-
-    await run_auto_sync(context, "17:00")
-
-async def scheduled_auto_sync_winter(context):
-    kst = pytz.timezone('Asia/Seoul')
-    now = datetime.datetime.now(kst)
-
-    if now.hour < 17:
-        target_time = now.replace(hour=17, minute=0, second=0, microsecond=0)
-        delay = (target_time - now).total_seconds()
-        context.job_queue.run_once(delayed_auto_sync, delay, data=context.job.data, chat_id=context.job.chat_id)
-        logging.info(f"⏳ [정산 지연 엔진 가동] 동기화 스케줄을 17:00로 시프트합니다. ({delay}초 뒤 격발)")
-        return
-
-    await run_auto_sync(context, "17:00")
+# 🚨 [서머타임 영구 자동화] 04:00 ET(tzinfo=est)로 등록되는 job은 pytz가 매일 DST 상태를
+# 반영해 KST 환산 시각을 알아서 계산해주므로(여름=17:00 KST, 겨울=18:00 KST), 과거처럼
+# summer/winter 두 버전을 만들고 TARGET_HOUR로 골라 끼우거나 봇을 재시작할 필요가 없다.
+# main.py의 run_daily/run_once 등록 시점에 이미 정확한 순간에 맞춰 호출되므로, 여기서는
+# 추가 지연 계산 없이 바로 정산을 수행한다.
+async def scheduled_auto_sync(context):
+    now_kst = datetime.datetime.now(pytz.timezone('Asia/Seoul'))
+    await run_auto_sync(context, now_kst.strftime('%H:%M'))
 
 async def run_auto_sync(context, time_str):
     chat_id = context.job.chat_id

@@ -35,11 +35,9 @@ from volatility_engine import VolatilityEngine
 
 from scheduler_core import (
     scheduled_token_check,
-    scheduled_auto_sync_summer,
-    scheduled_auto_sync_winter,
+    scheduled_auto_sync,
     scheduled_force_reset,
     scheduled_self_cleaning,
-    delayed_auto_sync,
     get_target_hour,
     perform_self_cleaning
 )
@@ -240,43 +238,43 @@ def main():
     jq = app.job_queue
     
     # 1. 시스템 관리 스케줄러 (core)
-    for tt in [datetime.time(7,0,tzinfo=kst), datetime.time(11,0,tzinfo=kst), datetime.time(16,55,tzinfo=kst), datetime.time(22,0,tzinfo=kst)]:
+    for tt in [datetime.time(7,0,tzinfo=kst), datetime.time(11,0,tzinfo=kst), datetime.time(17,55,tzinfo=kst), datetime.time(22,0,tzinfo=kst)]:
         jq.run_daily(scheduled_token_check, time=tt, days=tuple(range(7)), chat_id=ADMIN_CHAT_ID, data=app_data)
-    
-    # MODIFIED: [이중 잔고 동기화 방어] 사계절(TARGET_HOUR) 기준에 맞춰 여름/겨울 동기화 스케줄을 단 하나만 등록
-    SYNC_FUNC = scheduled_auto_sync_summer if TARGET_HOUR == 17 else scheduled_auto_sync_winter
-    jq.run_daily(SYNC_FUNC, time=datetime.time(17, 0, tzinfo=kst), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
 
-    # 콜드스타트 복구: 봇 재시작 시 당일 17:00 이전이면 delayed_auto_sync 즉시 등록
-    import datetime as _dt
-    _now_kst = _dt.datetime.now(kst)
-    if _now_kst.hour < 17:
-        _target = _now_kst.replace(hour=17, minute=0, second=0, microsecond=0)
-        _delay = (_target - _now_kst).total_seconds()
-        jq.run_once(delayed_auto_sync, _delay, chat_id=ADMIN_CHAT_ID, data=app_data)
-    
-    # MODIFIED: [이중 타격 방어] 17시/18시가 무조건 모두 등록되는 버그를 제거하고 TARGET_HOUR 단일 슬롯에만 락 초기화 등록
-    jq.run_daily(scheduled_force_reset, time=datetime.time(TARGET_HOUR, 0, tzinfo=kst), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
-        
+    # 🚨 [서머타임 영구 자동화] force_reset/regular_trade/vr_check/auto_sync 전부 tzinfo=est의
+    # 고정 ET 시각(04:00/04:03/04:05 ET)으로 등록한다. 04:00 ET는 여름(EDT)엔 17:00 KST,
+    # 겨울(EST)엔 18:00 KST와 정확히 일치하므로, pytz가 DST 전환을 매일 자동 반영해 봇을
+    # 재시작하지 않아도 영구적으로 올바른 KST 시각에 격발된다(과거 TARGET_HOUR를 Python
+    # 레벨에서 1회만 계산해 KST에 박아넣던 방식은 재시작 전까지 계절이 바뀌어도 갱신되지 않았음).
+    jq.run_daily(scheduled_auto_sync, time=datetime.time(4, 0, tzinfo=est), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
+
+    # 콜드스타트 복구: 봇 재시작 시 당일 04:00 ET(오늘자 타겟)가 아직 안 지났으면 즉시 1회성 예약
+    _now_est = datetime.datetime.now(est)
+    _target_est = _now_est.replace(hour=4, minute=0, second=0, microsecond=0)
+    if _now_est < _target_est:
+        _delay = (_target_est - _now_est).total_seconds()
+        jq.run_once(scheduled_auto_sync, _delay, chat_id=ADMIN_CHAT_ID, data=app_data)
+
+    jq.run_daily(scheduled_force_reset, time=datetime.time(4, 0, tzinfo=est), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
+
     jq.run_daily(scheduled_volatility_scan, time=datetime.time(10, 20, tzinfo=est), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
-    
+
     # 2. 실전 전투 매매 스케줄러 (trade)
-    # MODIFIED: [이중 타격 방어] 17:05/18:05 동시 발사(Double-buying) 버그를 원천 차단하고 TARGET_HOUR에만 정규장 타격 스케줄 등록
-    jq.run_daily(scheduled_regular_trade, time=datetime.time(TARGET_HOUR, 5, tzinfo=kst), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
-    
+    jq.run_daily(scheduled_regular_trade, time=datetime.time(4, 5, tzinfo=est), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
+
     jq.run_daily(scheduled_vwap_init_and_cancel, time=datetime.time(15, 30, tzinfo=est), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
 
     # 🚨 [수술 완료] 콜드 스타트 폭풍 방어: 봇 구동 후 30초 뒤 첫 실행(first=30)
     jq.run_repeating(scheduled_sniper_monitor, interval=60, first=30, chat_id=ADMIN_CHAT_ID, data=app_data)
     jq.run_repeating(scheduled_vwap_trade, interval=60, first=30, chat_id=ADMIN_CHAT_ID, data=app_data)
-    
+
     jq.run_daily(scheduled_after_market_lottery, time=datetime.time(16, 5, tzinfo=est), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
 
     jq.run_daily(scheduled_self_cleaning, time=datetime.time(6, 0, tzinfo=kst), days=tuple(range(7)), chat_id=ADMIN_CHAT_ID, data=app_data)
 
-    # 3. VR5 밸류리밸런싱 일일 체크 (무매4 주문 2분 전, TARGET_HOUR:03 KST)
+    # 3. VR5 밸류리밸런싱 일일 체크 (무매4 주문 2분 전, 04:03 ET)
     # KIS 해외주식은 GTC/기간예약이 없어 당일 지정가를 매일 재장전하는 방식으로 원전 VR의 상시 밴드 주문을 대체
-    jq.run_daily(scheduled_vr_check, time=datetime.time(TARGET_HOUR, 3, tzinfo=kst), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
+    jq.run_daily(scheduled_vr_check, time=datetime.time(4, 3, tzinfo=est), days=(1,2,3,4,5), chat_id=ADMIN_CHAT_ID, data=app_data)
         
     app.run_polling()
 
