@@ -314,7 +314,16 @@ class V14Strategy:
                         core_orders.append({"side": "SELL", "price": star_price, "qty": sell_qty, "type": "LOC", "desc": "🌟별값매도"})
 
                     if one_portion_amt > 0 and buy_price > 0:
-                        bonus_orders.extend(self._build_jup_ladder(one_portion_amt, buy_qty, buy_price, base_price, "🧹리버스줍줍({})"))
+                        # 🚨 [예산 이중 소진 방어] 줍줍 사다리가 ⚓잔금매수와 별개로 one_portion_amt
+                        # 전액을 또 목표로 삼으면, 둘 다 체결될 경우 1회분 예산의 최대 2배까지
+                        # 쓸 수 있어 잔여시드 전체를 넘어설 위험이 있다. ⚓잔금매수가 이미 쓴
+                        # 금액을 뺀 "남은 예산"(jup_budget)만 줍줍 사다리의 목표로 삼고, base_qty도
+                        # 같은 잔여예산 기준으로 다시 잡는다(buy_qty를 그대로 쓰면 줄어든 예산과
+                        # 안 맞아 사다리 시작 가격이 즉시 하한선 밑으로 떨어져 통째로 비어버림).
+                        core_committed = buy_qty * buy_price
+                        jup_budget = max(0.0, one_portion_amt - core_committed)
+                        jup_base_qty = int(math.floor(jup_budget / buy_price)) if buy_price > 0 else 0
+                        bonus_orders.extend(self._build_jup_ladder(jup_budget, jup_base_qty, buy_price, base_price, "🧹리버스줍줍({})"))
                 
                 if lock_s_sell: process_status = "🔫리버스(명중)"
 
@@ -351,6 +360,7 @@ class V14Strategy:
             p_avg = max(0.01, round(min(self._ceil(avg_price) - 0.01, safe_ceiling - 0.01), 2))
             p_avg = self._apply_price_collar(p_avg, base_price)
 
+            core_buy_committed = 0.0
             if can_buy:
                 p_star = max(0.01, round(star_price - 0.01, 2))
                 p_star = self._apply_price_collar(p_star, base_price)
@@ -362,21 +372,32 @@ class V14Strategy:
                     total_basic = q_avg_init + q_star
                     if total_basic < N: q_avg = int(q_avg_init + (N - total_basic))
                     else: q_avg = int(q_avg_init)
-                    
+
                     if q_avg > 0:
                         core_orders.append({"side": "BUY", "price": p_avg, "qty": q_avg, "type": "LOC", "desc": "⚓평단매수"})
+                        core_buy_committed += q_avg * p_avg
                     if q_star > 0:
                         core_orders.append({"side": "BUY", "price": p_star, "qty": int(q_star), "type": "LOC", "desc": "💫별값매수"})
-                else: 
+                        core_buy_committed += q_star * p_star
+                else:
                     if p_star > 0:
                         q_star = int(math.floor(one_portion_amt / p_star))
                         if q_star > 0:
                             core_orders.append({"side": "BUY", "price": p_star, "qty": q_star, "type": "LOC", "desc": "💫별값매수"})
+                            core_buy_committed += q_star * p_star
 
             if one_portion_amt > 0 and (is_simulation or not is_money_short):
-                base_qty_for_jup = math.floor(one_portion_amt / avg_price) if avg_price > 0 else 0
+                # 🚨 [예산 이중 소진 방어] 줍줍 사다리가 위 ⚓평단매수/💫별값매수와 별개로
+                # one_portion_amt 전액을 또 목표로 삼으면, 둘 다 체결될 경우 1회분 예산의
+                # 최대 2배까지 쓸 수 있어 잔여시드 전체를 넘어설 위험이 있다. 핵심 주문이
+                # 이미 쓴 금액을 뺀 "남은 예산"(jup_budget)만 줍줍 사다리의 목표로 삼고,
+                # base_qty도 같은 잔여예산 기준으로 다시 잡아야 사다리 시작 가격이 평단가
+                # 근처에서 자연스럽게 출발한다(기존 one_portion_amt 기준 base_qty를 그대로
+                # 쓰면 줄어든 예산과 안 맞아 즉시 하한선 밑으로 떨어져 사다리가 통째로 비어버림).
+                jup_budget = max(0.0, one_portion_amt - core_buy_committed)
+                base_qty_for_jup = math.floor(jup_budget / avg_price) if avg_price > 0 else 0
                 if base_qty_for_jup > 0:
-                    bonus_orders.extend(self._build_jup_ladder(one_portion_amt, base_qty_for_jup, avg_price, base_price, "🧹줍줍({})"))
+                    bonus_orders.extend(self._build_jup_ladder(jup_budget, base_qty_for_jup, avg_price, base_price, "🧹줍줍({})"))
 
             if qty > 0:
                 if lock_s_sell:
