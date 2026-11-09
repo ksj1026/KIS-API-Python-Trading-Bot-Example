@@ -22,6 +22,7 @@ import asyncio
 import threading
 import math # 🚨 [수술 완료] NaN 검증용 math 모듈 추가
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
+from telegram import BotCommand
 from dotenv import load_dotenv
 
 from config import ConfigManager
@@ -139,6 +140,24 @@ async def post_init(application: Application):
     tx_lock = asyncio.Lock()
     application.bot_data['app_data']['tx_lock'] = tx_lock
     application.bot_data['bot_controller'].tx_lock = tx_lock
+
+    # 🚨 [명령어 메뉴 자동 등록] 텔레그램 채팅창 "/" 자동완성 팝업 및 ☰ 메뉴 버튼에
+    # 실제 등록된 명령어 목록이 뜨도록 set_my_commands를 호출한다(이전엔 호출된 적이
+    # 없어 "/"를 입력해도 아무것도 안 보였음).
+    await application.bot.set_my_commands([
+        BotCommand("start", "시작 화면 & 명령어 목록"),
+        BotCommand("sync", "통합 지시서 조회"),
+        BotCommand("record", "장부 동기화 및 조회"),
+        BotCommand("history", "졸업 명예의 전당"),
+        BotCommand("settlement", "코어스위칭/전술설정"),
+        BotCommand("seed", "개별 시드머니 관리"),
+        BotCommand("ticker", "운용 종목 선택"),
+        BotCommand("mode", "상방 스나이퍼 ON/OFF"),
+        BotCommand("vr", "VR5 밸류리밸런싱 메뉴"),
+        BotCommand("reset", "비상 해제 메뉴 (락/리버스)"),
+        BotCommand("version", "버전 및 업데이트 내역"),
+        BotCommand("update", "시스템 자가 업데이트"),
+    ])
 
 def main():
     TARGET_HOUR, season_msg = get_target_hour()

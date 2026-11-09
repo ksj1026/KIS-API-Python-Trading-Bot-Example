@@ -101,6 +101,7 @@ class TelegramView:
         msg += "▶️ /seed : 💵 개별 시드머니 관리\n"
         msg += "▶️ /ticker : 🔄 운용 종목 선택\n"
         msg += "▶️ /mode : 🎯 상방 스나이퍼 ON/OFF\n"
+        msg += "▶️ /vr : 📊 VR5 밸류리밸런싱 메뉴\n"
         msg += "▶️ /version : 🛠️ 버전 및 업데이트 내역\n\n"
         
         msg += "⚠️ /reset : 🔓 비상 해제 메뉴 (락/리버스)\n"
