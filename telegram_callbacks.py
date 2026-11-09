@@ -988,7 +988,8 @@ class TelegramCallbacks:
                     h = (holdings or {}).get(ticker) or {}
                     qty = int(float(h.get('qty', 0)))
 
-                    ladder = vr_engine.get_ladder_orders(ticker, curr_p, qty, vr_cfg)
+                    _, total_buy, _, _ = self.cfg.get_vr_pool_state(ticker)
+                    ladder = vr_engine.get_ladder_orders(ticker, curr_p, qty, vr_cfg, total_buy=total_buy)
                     orders = ladder.get('orders', [])
                     result_msg = (
                         f"🔍 <b>[VR5] {ticker} 밴드 체크 결과</b>\n"

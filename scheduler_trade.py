@@ -1171,12 +1171,25 @@ async def scheduled_vr_check(context):
                     summary = cfg.get_vr_investment_summary(ticker, current_value)
                     v_update_note += "\n\n" + TelegramView().format_vr_investment_summary(ticker, summary)
 
-                ladder = vr_engine.get_ladder_orders(ticker, curr_p, qty, vr_cfg)
+                ladder = vr_engine.get_ladder_orders(ticker, curr_p, qty, vr_cfg, total_buy=total_buy)
                 orders = ladder.get('orders', [])
                 v = ladder.get('v', 0)
                 low = ladder.get('low', 0)
                 high = ladder.get('high', 0)
                 portfolio = ladder.get('portfolio', 0)
+
+                buy_cap_note = ""
+                if ladder.get('buy_cap_reached'):
+                    pool_initial_disp = float(vr_cfg.get('pool_initial', 0.0))
+                    cap_ratio_disp = ladder.get('buy_cap_ratio', 0.0)
+                    cap_amt = pool_initial_disp * cap_ratio_disp
+                    deposit_disp = float(vr_cfg.get('deposit', 0.0))
+                    deposit_label = f"정기적립 ${deposit_disp:,.0f} 반영" if deposit_disp > 0 else "정기적립 없음"
+                    buy_cap_note = (
+                        f"\n\n🚫 <b>Pool {cap_ratio_disp*100:.0f}% 매수 상한 도달!</b> ({deposit_label})\n"
+                        f"▫️ 누적 매수 ${total_buy:,.0f} ≥ 처음 Pool ${pool_initial_disp:,.0f} × {cap_ratio_disp*100:.0f}% (${cap_amt:,.0f})\n"
+                        f"▫️ 매수 사다리를 전면 중단하고 매도만 진행합니다."
+                    )
 
                 msg = (
                     f"📊 <b>[VR5] {ticker} 일일 사다리 재장전</b>\n"
@@ -1186,6 +1199,7 @@ async def scheduled_vr_check(context):
                     f"▫️ Pool 잔액: <b>${pool_current:,.2f}</b>"
                     + g_update_note
                     + v_update_note
+                    + buy_cap_note
                 )
 
                 # 현재가 ±15% 이내 사다리 즉시 전송 후 주문내역 보고
@@ -1219,8 +1233,9 @@ async def scheduled_vr_check(context):
                         + "\n".join(lines)
                     )
                     await context.bot.send_message(chat_id=chat_id, text=report, parse_mode='HTML')
-                elif v_update_note or g_update_note:
-                    # 사다리 없음(범위 밖/보유 0 등) 알림은 생략하되, V/G 자동 업데이트가 있었으면 결과 발송
+                elif v_update_note or g_update_note or ladder.get('buy_cap_reached'):
+                    # 사다리 없음(범위 밖/보유 0 등) 알림은 생략하되, V/G 자동 업데이트가 있었거나
+                    # Pool 70% 매수 상한에 걸려 매수가 전면 중단된 상태면 결과를 발송해 가시성 확보
                     await context.bot.send_message(chat_id=chat_id, text=msg, parse_mode='HTML')
 
     try:

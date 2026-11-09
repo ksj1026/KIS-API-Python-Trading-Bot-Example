@@ -35,7 +35,13 @@ class VRStrategy:
             sell_lot = max(0.0, (current_qty - target_prev_qty) / rungs)
         return max(1, round(max(buy_lot, sell_lot)))
 
-    def get_ladder_orders(self, ticker, current_price, current_qty, vr_cfg, range_pct=15.0, max_orders_per_side=20):
+    # NEW: 누적 매수금액이 처음 Pool(pool_initial)의 일정 비율에 도달하면 매수 사다리 생성을
+    # 전면 중단한다. 정기 적립금이 있으면(Pool이 주기적으로 보충되므로) 75%까지 허용하고,
+    # 적립금이 없으면(Pool이 더 이상 안 채워지므로) 50%로 더 보수적으로 제한한다.
+    POOL_BUY_CAP_RATIO_WITH_DEPOSIT = 0.75
+    POOL_BUY_CAP_RATIO_NO_DEPOSIT = 0.50
+
+    def get_ladder_orders(self, ticker, current_price, current_qty, vr_cfg, range_pct=15.0, max_orders_per_side=20, total_buy=None):
         """
         라오어 VR 원전 방식: 밴드 경계 터치 가격에 lot 단위 사다리 주문 생성
         - m번째 매수가 = V×(1-밴드) / (보유수량+(m-1)×lot)  → lot주 살 때마다 다음 매수가 하락
@@ -43,6 +49,11 @@ class VRStrategy:
         - lot(주문 묶음 단위)은 포트폴리오 규모에 비례해 자동 산출됨(_calc_lot_size) —
           계좌가 작으면 1주씩, 커지면 여러 주씩 묶여서 나간다.
         - 현재가 ±range_pct% 범위 내의 주문만 반환 (당일 유효 주문이므로 하루 변동폭만 커버)
+        - 🚨 [Pool 매수 상한] total_buy(누적 매수금액)가 pool_initial(처음 Pool)의 일정 비율
+          (정기 적립금 有 75% / 無 50%)에 도달하면 매수 사다리를 생성하지 않는다(매도 사다리는
+          그대로 유지). 사다리 자체가 V/밴드 수학으로만 계산되어 Pool 잔액을 전혀 참조하지
+          않다 보니, Pool이 거의 소진된 상태에서도 평소와 같은 크기의 매수 주문이 깔려 Pool을
+          초과 소진하는 문제를 막는다.
 
         Returns:
             dict with keys: orders(list of {side, qty, price}), v, low, high,
@@ -61,6 +72,14 @@ class VRStrategy:
         if current_qty <= 0:
             return {**base, 'reason': '보유수량 0 — 초기 매수 후 사다리 생성 가능'}
 
+        pool_initial = float(vr_cfg.get('pool_initial', 0.0))
+        has_deposit = float(vr_cfg.get('deposit', 0.0)) > 0
+        buy_cap_ratio = self.POOL_BUY_CAP_RATIO_WITH_DEPOSIT if has_deposit else self.POOL_BUY_CAP_RATIO_NO_DEPOSIT
+        buy_cap_reached = (
+            total_buy is not None and pool_initial > 0
+            and float(total_buy) >= pool_initial * buy_cap_ratio
+        )
+
         band_pct = float(vr_cfg.get('band_pct', 15)) / 100.0
         low = v * (1 - band_pct)
         high = v * (1 + band_pct)
@@ -71,16 +90,17 @@ class VRStrategy:
 
         orders = []
         # 매수 사다리 (m이 커질수록 가격 하락). prev_qty = 이 칸 매수 "전" 보유수량 기준가.
-        for m in range(1, max_orders_per_side + 1):
-            prev_qty = current_qty + (m - 1) * lot_size
-            if prev_qty <= 0:
-                break
-            price = round(low / prev_qty, 2)
-            if price < range_low:
-                break
-            if price > range_high:
-                continue  # 이미 하한 이탈 상태의 캐치업 물량 중 범위 초과분 제외
-            orders.append({'side': 'BUY', 'qty': lot_size, 'price': price})
+        if not buy_cap_reached:
+            for m in range(1, max_orders_per_side + 1):
+                prev_qty = current_qty + (m - 1) * lot_size
+                if prev_qty <= 0:
+                    break
+                price = round(low / prev_qty, 2)
+                if price < range_low:
+                    break
+                if price > range_high:
+                    continue  # 이미 하한 이탈 상태의 캐치업 물량 중 범위 초과분 제외
+                orders.append({'side': 'BUY', 'qty': lot_size, 'price': price})
 
         # 매도 사다리 (m이 커질수록 가격 상승). prev_qty = 이 칸 매도 "전" 보유수량 기준가.
         # 누적 매도량이 보유수량을 넘지 않도록 마지막 칸은 잔량만큼만 매도.
@@ -96,6 +116,10 @@ class VRStrategy:
                 continue  # 이미 상한 이탈 상태의 캐치업 물량 중 범위 초과분 제외
             orders.append({'side': 'SELL', 'qty': sell_qty, 'price': price})
 
+        reason = f'사다리 {len(orders)}건 × {lot_size}주 (현재가 ±{range_pct:.0f}% 범위)'
+        if buy_cap_reached:
+            reason = f'🚫 Pool {buy_cap_ratio*100:.0f}% 매수 상한 도달 — 매수 중단, 매도만 진행 | {reason}'
+
         return {
             **base,
             'orders': orders,
@@ -106,7 +130,9 @@ class VRStrategy:
             'range_high': round(range_high, 2),
             'portfolio': round(current_qty * current_price, 2),
             'lot_size': lot_size,
-            'reason': f'사다리 {len(orders)}건 × {lot_size}주 (현재가 ±{range_pct:.0f}% 범위)',
+            'buy_cap_reached': buy_cap_reached,
+            'buy_cap_ratio': buy_cap_ratio,
+            'reason': reason,
         }
 
     def format_ladder_table(self, orders, current_price):
