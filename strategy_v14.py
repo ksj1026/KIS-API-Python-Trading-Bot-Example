@@ -214,16 +214,25 @@ class V14Strategy:
         
         if not is_reverse and (t_val > (split - 1) or (qty > 0 and is_money_short_check)):
             if not is_jackpot_reached:
-                is_reverse = True 
-                rev_day = 1 
-                
+                is_reverse = True
+                rev_day = 1
+
                 current_return = (current_price - avg_price) / avg_price * 100.0 if avg_price > 0 else 0.0
                 default_exit = -15.0 if ticker == "TQQQ" else -20.0
-                
+
                 if current_return >= default_exit:
                     exit_target = 0.0
                 else:
                     exit_target = default_exit
+
+                # 🚨 [BUGFIX] 리버스 진입 영구 저장 누락 수술: 위에서 계산한 is_reverse=True/
+                # rev_day=1 전환이 지금까지 reverse_config.json에 저장되지 않아, 다음 호출 때
+                # rev_state.is_active가 다시 False로 읽혀 매일 "1일차 의무매도(MOC)"가 재발동
+                # 하고, 하드스탑/일수 증가(scheduled_force_reset)도 is_active=True를 전제로
+                # 하므로 영구히 작동하지 않던 치명적 맹점을 수술. is_simulation(미리보기/스냅샷
+                # 계산)일 때는 저장하지 않아 부작용 없는 조회성 호출과 분리한다.
+                if not is_simulation:
+                    self.cfg.set_reverse_state(ticker, True, 1, exit_target)
 
         depreciation_factor = 2.0 / split if split > 0 else 0.1
         star_ratio = target_ratio - (target_ratio * depreciation_factor * t_val)

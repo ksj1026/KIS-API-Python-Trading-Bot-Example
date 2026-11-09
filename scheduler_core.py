@@ -158,99 +158,49 @@ async def scheduled_token_check(context):
     logging.info("🔑 [API 토큰 갱신] 토큰 갱신이 안전하게 완료되었습니다.")
 
 # ==========================================================
-# 🚨 리버스 모드 절대 하드스탑(TQQQ -15% / SOXL -20%) 확정 탈출 엔진
+# 🔓 일일 시스템 초기화 (매매 잠금 해제 & 리버스 일수 증가)
+# 🚨 [2026-11-10 제거] 리버스 모드 절대 하드스탑(TQQQ -15% / SOXL -20%) 확정 탈출 엔진을
+# 사용자 요청으로 영구 삭제함. 이 하드스탑은 라오어 원전 무한매수법 4.0에는 없는 기능으로,
+# V25.02에서 커뮤니티 제보(✨언제나미생님)를 반영해 추가된 것이었음. 원전 철학대로 리버스
+# 진입 후에는 손실 폭과 무관하게 5일선/평단가 기준 되사오기를 계속 진행한다.
 # ==========================================================
 
 async def scheduled_force_reset(context):
     kst = pytz.timezone('Asia/Seoul')
     now = datetime.datetime.now(kst)
     target_hour, _ = get_target_hour()
-    
+
     now_minutes = now.hour * 60 + now.minute
     target_minutes = target_hour * 60
-    
+
     diff = min((now_minutes - target_minutes) % 1440, (target_minutes - now_minutes) % 1440)
-    
+
     if diff > 65:
         return
-        
+
     if not is_market_open():
         await context.bot.send_message(chat_id=context.job.chat_id, text="⛔ <b>오늘은 미국 증시 휴장일입니다. 금일 시스템 매매 잠금 해제 및 정규장 주문 스케줄을 모두 건너뜁니다.</b>", parse_mode='HTML')
         return
-    
+
     try:
         app_data = context.job.data
         cfg = app_data['cfg']
-        broker = app_data['broker']
-        tx_lock = app_data['tx_lock']
         chat_id = context.job.chat_id
-        
+
         cfg.reset_locks()
-        
+
         for t in cfg.get_active_tickers():
             if hasattr(cfg, 'set_order_locked'):
                 cfg.set_order_locked(t, False)
-        
-        msg_addons = ""
-        HARD_STOP_THRESHOLDS = {"TQQQ": -15.0, "SOXL": -20.0}
-        
-        async with tx_lock:
-            _, holdings_snap = await asyncio.to_thread(broker.get_account_balance)
-            
-        # 🛠️ [V27.26 수술 핵심] 증권사 API가 빈 딕셔너리({}) 대신 빈 리스트([])를 던지는 고질적 버그를 완벽히 튕겨내는 타입 세이프 쉴드
-        safe_holdings = holdings_snap if isinstance(holdings_snap, dict) else {}
-            
+
         for t in cfg.get_active_tickers():
             rev_state = cfg.get_reverse_state(t)
-            
             if rev_state.get("is_active"):
-                async with tx_lock:
-                    curr_p = await asyncio.to_thread(broker.get_current_price, t)
-                
-                # 에러 진원지 완벽 해결: 리스트([])에서는 get을 시도하지 않고 안전한 딕셔너리에서만 조회
-                h_data = safe_holdings.get(t) or {}
-                actual_avg = float(h_data.get('avg') or 0.0)
-                curr_p = float(curr_p or 0.0)
-                
-                if curr_p > 0 and actual_avg > 0:
-                    curr_ret = (curr_p - actual_avg) / actual_avg * 100.0
-                    
-                    exit_threshold = HARD_STOP_THRESHOLDS.get(t)
-                    if exit_threshold is None:
-                        logging.error(f"🚨 [FATAL] {t}에 대한 하드스탑 임계치가 설정되지 않았습니다.")
-                        continue
-                    
-                    if curr_ret <= exit_threshold:
-                        try:
-                            cancelled = await asyncio.to_thread(broker.cancel_all_orders, t)
-                            await asyncio.sleep(1.0)
-                            logging.warning(f"🚨 [HardStop] {t} 미체결 주문 {cancelled}건 취소 완료")
-                        except Exception as cancel_err:
-                            logging.error(f"🚨 [HardStop] {t} 주문 취소 실패 — 수동 확인 필수: {cancel_err}")
-                            await context.bot.send_message(chat_id=chat_id, text=f"🚨 <b>[{t}] 하드스탑 주문 취소 에러!</b> 미체결 주문을 수동으로 확인하세요. (상태 초기화 보류)", parse_mode='HTML')
-                            continue 
+                cfg.increment_reverse_day(t)
 
-                        cfg.set_reverse_state(t, False, 0, 0.0)
-                        cfg.clear_escrow_cash(t)
-                        
-                        ledger_data = cfg.get_ledger()
-                        changed = False
-                        for lr in ledger_data:
-                            if lr.get('ticker') == t and lr.get('is_reverse', False):
-                                lr['is_reverse'] = False
-                                changed = True
-                        if changed:
-                            cfg._save_json(cfg.FILES["LEDGER"], ledger_data)
-                            
-                        msg_addons += f"\n🚨 <b>[{t}] 하드스탑 확정 탈출 발동 (수익률: {curr_ret:.2f}% <= 기준: {exit_threshold}%)!</b>\n▫️ 격리 병동을 즉시 폐쇄하고 V14 본대로 완벽히 복귀했습니다."
-                    else:
-                        cfg.increment_reverse_day(t)
-                else:
-                    cfg.increment_reverse_day(t)
-                
-        final_msg = f"🔓 <b>[{target_hour}:00] 시스템 일일 초기화 완료 (매매 잠금 해제 & 팩트 스캔)</b>" + msg_addons
+        final_msg = f"🔓 <b>[{target_hour}:00] 시스템 일일 초기화 완료 (매매 잠금 해제 & 팩트 스캔)</b>"
         await context.bot.send_message(chat_id=chat_id, text=final_msg, parse_mode='HTML')
-        
+
     except Exception as e:
         await context.bot.send_message(chat_id=context.job.chat_id, text=f"🚨 <b>시스템 초기화 중 에러 발생:</b> {e}", parse_mode='HTML')
 
