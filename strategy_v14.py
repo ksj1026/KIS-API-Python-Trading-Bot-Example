@@ -45,7 +45,7 @@ class V14Strategy:
     # JUP_PRICE_FLOOR_PCT(기본 15%) 밑으로 떨어지거나 JUP_MAX_ORDERS(과도한 주문
     # 폭주 방지)에 도달하면 멈춘다. (실매매 확인 결과 평단가 기준 -50%는 과도하게
     # 많은 주문이 생성되어, 사용자가 "현재가 기준 -15%"로 조정 요청함)
-    JUP_MAX_ORDERS = 30
+    JUP_MAX_ORDERS = 10
     JUP_PRICE_FLOOR_PCT = 0.15
 
     def _build_jup_ladder(self, one_portion_amt, base_qty, price_ceiling, base_price, desc_fmt):
@@ -323,16 +323,13 @@ class V14Strategy:
                         core_orders.append({"side": "SELL", "price": star_price, "qty": sell_qty, "type": "LOC", "desc": "🌟별값매도"})
 
                     if one_portion_amt > 0 and buy_price > 0:
-                        # 🚨 [예산 이중 소진 방어] 줍줍 사다리가 ⚓잔금매수와 별개로 one_portion_amt
-                        # 전액을 또 목표로 삼으면, 둘 다 체결될 경우 1회분 예산의 최대 2배까지
-                        # 쓸 수 있어 잔여시드 전체를 넘어설 위험이 있다. ⚓잔금매수가 이미 쓴
-                        # 금액을 뺀 "남은 예산"(jup_budget)만 줍줍 사다리의 목표로 삼고, base_qty도
-                        # 같은 잔여예산 기준으로 다시 잡는다(buy_qty를 그대로 쓰면 줄어든 예산과
-                        # 안 맞아 사다리 시작 가격이 즉시 하한선 밑으로 떨어져 통째로 비어버림).
-                        core_committed = buy_qty * buy_price
-                        jup_budget = max(0.0, one_portion_amt - core_committed)
-                        jup_base_qty = int(math.floor(jup_budget / buy_price)) if buy_price > 0 else 0
-                        bonus_orders.extend(self._build_jup_ladder(jup_budget, jup_base_qty, buy_price, base_price, "🧹리버스줍줍({})"))
+                        # 🚨 [LOC 동시체결 수학] ⚓잔금매수와 줍줍 사다리 모두 LOC라 종가 하나에
+                        # 전부 같이 체결된다. 사다리 가격 공식 price(i)=예산/(buy_qty+i)은
+                        # "그 가격에 총 (buy_qty+i)주를 갖게 되면 정확히 예산만큼"이 되도록
+                        # 설계돼 있어, 종가가 어디서 끊기든 그 순간까지 체결된 전체 수량×종가는
+                        # 수학적으로 항상 예산(one_portion_amt) 이하다. 따라서 줍줍은 ⚓잔금매수가
+                        # 쓴 금액을 빼지 않고 예산 전액·buy_qty를 그대로 기준 삼아 이어서 계산한다.
+                        bonus_orders.extend(self._build_jup_ladder(one_portion_amt, buy_qty, buy_price, base_price, "🧹리버스줍줍({})"))
                 
                 if lock_s_sell: process_status = "🔫리버스(명중)"
 
@@ -369,7 +366,6 @@ class V14Strategy:
             p_avg = max(0.01, round(min(self._ceil(avg_price) - 0.01, safe_ceiling - 0.01), 2))
             p_avg = self._apply_price_collar(p_avg, base_price)
 
-            core_buy_committed = 0.0
             if can_buy:
                 p_star = max(0.01, round(star_price - 0.01, 2))
                 p_star = self._apply_price_collar(p_star, base_price)
@@ -384,29 +380,24 @@ class V14Strategy:
 
                     if q_avg > 0:
                         core_orders.append({"side": "BUY", "price": p_avg, "qty": q_avg, "type": "LOC", "desc": "⚓평단매수"})
-                        core_buy_committed += q_avg * p_avg
                     if q_star > 0:
                         core_orders.append({"side": "BUY", "price": p_star, "qty": int(q_star), "type": "LOC", "desc": "💫별값매수"})
-                        core_buy_committed += q_star * p_star
                 else:
                     if p_star > 0:
                         q_star = int(math.floor(one_portion_amt / p_star))
                         if q_star > 0:
                             core_orders.append({"side": "BUY", "price": p_star, "qty": q_star, "type": "LOC", "desc": "💫별값매수"})
-                            core_buy_committed += q_star * p_star
 
             if one_portion_amt > 0 and (is_simulation or not is_money_short):
-                # 🚨 [예산 이중 소진 방어] 줍줍 사다리가 위 ⚓평단매수/💫별값매수와 별개로
-                # one_portion_amt 전액을 또 목표로 삼으면, 둘 다 체결될 경우 1회분 예산의
-                # 최대 2배까지 쓸 수 있어 잔여시드 전체를 넘어설 위험이 있다. 핵심 주문이
-                # 이미 쓴 금액을 뺀 "남은 예산"(jup_budget)만 줍줍 사다리의 목표로 삼고,
-                # base_qty도 같은 잔여예산 기준으로 다시 잡아야 사다리 시작 가격이 평단가
-                # 근처에서 자연스럽게 출발한다(기존 one_portion_amt 기준 base_qty를 그대로
-                # 쓰면 줄어든 예산과 안 맞아 즉시 하한선 밑으로 떨어져 사다리가 통째로 비어버림).
-                jup_budget = max(0.0, one_portion_amt - core_buy_committed)
-                base_qty_for_jup = math.floor(jup_budget / avg_price) if avg_price > 0 else 0
+                # 🚨 [LOC 동시체결 수학] ⚓평단매수/💫별값매수와 줍줍 사다리 모두 LOC라 종가
+                # 하나에 전부 같이 체결된다. 사다리 가격 공식 price(i)=예산/(N+i)는 "그 가격에
+                # 총 (N+i)주를 갖게 되면 정확히 예산만큼"이 되도록 설계돼 있어, 종가가 어디서
+                # 끊기든 그 순간까지 체결된 전체 수량×종가는 수학적으로 항상 예산(one_portion_amt)
+                # 이하다. 핵심 주문들이 이미 N주(=floor(one_portion_amt/avg_price))를 목표로
+                # 하므로, 줍줍은 예산 전액·같은 N을 기준 삼아 N+1주째부터 이어서 계산한다.
+                base_qty_for_jup = N
                 if base_qty_for_jup > 0:
-                    bonus_orders.extend(self._build_jup_ladder(jup_budget, base_qty_for_jup, avg_price, base_price, "🧹줍줍({})"))
+                    bonus_orders.extend(self._build_jup_ladder(one_portion_amt, base_qty_for_jup, avg_price, base_price, "🧹줍줍({})"))
 
             if qty > 0:
                 if lock_s_sell:
