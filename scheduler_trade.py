@@ -1180,14 +1180,14 @@ async def scheduled_vr_check(context):
 
                 buy_cap_note = ""
                 if ladder.get('buy_cap_reached'):
-                    pool_initial_disp = float(vr_cfg.get('pool_initial', 0.0))
+                    cap_base_disp = ladder.get('buy_cap_base', 0.0)
                     cap_ratio_disp = ladder.get('buy_cap_ratio', 0.0)
-                    cap_amt = pool_initial_disp * cap_ratio_disp
+                    cap_amt = cap_base_disp * cap_ratio_disp
                     deposit_disp = float(vr_cfg.get('deposit', 0.0))
                     deposit_label = f"정기적립 ${deposit_disp:,.0f} 반영" if deposit_disp > 0 else "정기적립 없음"
                     buy_cap_note = (
                         f"\n\n🚫 <b>Pool {cap_ratio_disp*100:.0f}% 매수 상한 도달!</b> ({deposit_label})\n"
-                        f"▫️ 누적 매수 ${total_buy:,.0f} ≥ 처음 Pool ${pool_initial_disp:,.0f} × {cap_ratio_disp*100:.0f}% (${cap_amt:,.0f})\n"
+                        f"▫️ 누적 매수 ${total_buy:,.0f} ≥ 누적 Pool 재원 ${cap_base_disp:,.0f} × {cap_ratio_disp*100:.0f}% (${cap_amt:,.0f})\n"
                         f"▫️ 매수 사다리를 전면 중단하고 매도만 진행합니다."
                     )
 

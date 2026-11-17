@@ -49,11 +49,12 @@ class VRStrategy:
         - lot(주문 묶음 단위)은 포트폴리오 규모에 비례해 자동 산출됨(_calc_lot_size) —
           계좌가 작으면 1주씩, 커지면 여러 주씩 묶여서 나간다.
         - 현재가 ±range_pct% 범위 내의 주문만 반환 (당일 유효 주문이므로 하루 변동폭만 커버)
-        - 🚨 [Pool 매수 상한] total_buy(누적 매수금액)가 pool_initial(처음 Pool)의 일정 비율
-          (정기 적립금 有 75% / 無 50%)에 도달하면 매수 사다리를 생성하지 않는다(매도 사다리는
-          그대로 유지). 사다리 자체가 V/밴드 수학으로만 계산되어 Pool 잔액을 전혀 참조하지
-          않다 보니, Pool이 거의 소진된 상태에서도 평소와 같은 크기의 매수 주문이 깔려 Pool을
-          초과 소진하는 문제를 막는다.
+        - 🚨 [Pool 매수 상한] total_buy(누적 매수금액)가 누적 Pool 재원(pool_initial + 누적
+          적립금 + 배당)의 일정 비율(정기 적립금 有 75% / 無 50%)에 도달하면 매수 사다리를
+          생성하지 않는다(매도 사다리는 그대로 유지). 사다리 자체가 V/밴드 수학으로만 계산되어
+          Pool 잔액을 전혀 참조하지 않다 보니, Pool이 거의 소진된 상태에서도 평소와 같은
+          크기의 매수 주문이 깔려 Pool을 초과 소진하는 문제를 막는다. cap 기준을 처음 Pool에만
+          고정하지 않고 적립금이 쌓일수록 같이 늘어나게 하여 "적립금 有 75%" 취지를 유지한다.
 
         Returns:
             dict with keys: orders(list of {side, qty, price}), v, low, high,
@@ -72,12 +73,17 @@ class VRStrategy:
         if current_qty <= 0:
             return {**base, 'reason': '보유수량 0 — 초기 매수 후 사다리 생성 가능'}
 
+        # 🚨 [BUGFIX] cap 기준을 처음 Pool(pool_initial)에 고정하면, 적립금이 쌓여도 cap이
+        # 영원히 그대로라 "적립금 있으면 75% 허용" 취지가 무의미해진다. Pool 자체가
+        # pool_initial + 누적적립금 + 배당으로 역산되는 것과 동일한 기준으로, cap도 그 누적
+        # 재원(pool_base) 대비 비율로 계산해야 적립금이 쌓일수록 cap도 같이 늘어난다.
         pool_initial = float(vr_cfg.get('pool_initial', 0.0))
+        pool_base = pool_initial + float(vr_cfg.get('invested_deposits', 0.0)) + float(vr_cfg.get('dividends', 0.0))
         has_deposit = float(vr_cfg.get('deposit', 0.0)) > 0
         buy_cap_ratio = self.POOL_BUY_CAP_RATIO_WITH_DEPOSIT if has_deposit else self.POOL_BUY_CAP_RATIO_NO_DEPOSIT
         buy_cap_reached = (
-            total_buy is not None and pool_initial > 0
-            and float(total_buy) >= pool_initial * buy_cap_ratio
+            total_buy is not None and pool_base > 0
+            and float(total_buy) >= pool_base * buy_cap_ratio
         )
 
         band_pct = float(vr_cfg.get('band_pct', 15)) / 100.0
@@ -132,6 +138,7 @@ class VRStrategy:
             'lot_size': lot_size,
             'buy_cap_reached': buy_cap_reached,
             'buy_cap_ratio': buy_cap_ratio,
+            'buy_cap_base': pool_base,
             'reason': reason,
         }
 
