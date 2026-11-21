@@ -238,27 +238,24 @@ class V14Strategy:
         star_ratio = target_ratio - (target_ratio * depreciation_factor * t_val)
         
         if is_reverse:
-            if ma_5day > 0: 
+            if ma_5day > 0:
                 star_price = round(ma_5day, 2)
-            else: 
+            else:
                 star_price = self._ceil(avg_price)
 
-            ledger = self.cfg.get_ledger()
-            total_sell_amount = 0.0
-            
-            for r in reversed(ledger):
-                if r.get('ticker') == ticker:
-                    if r.get('is_reverse', False):
-                        if r['side'] == 'SELL':
-                            total_sell_amount += (r['qty'] * r['price'])
-                    else:
-                        break
-            
-            if total_sell_amount > 0:
-                one_portion_amt = total_sell_amount / 4.0
+            # 🚨 [BUGFIX] 과거엔 리버스 진입 이후 누적된 매도 총액(total_sell_amount, 장부
+            # 역탐색으로 산출)을 고정 분모로 삼아 one_portion_amt=total_sell_amount/4를
+            # 매번 똑같이 재사용했다. 이 값은 매수가 계속 쌓여도 절대 줄지 않아, 실제 남은
+            # Pool(real_available_cash — 매수할 때마다 정확히 줄어드는 에스크로 기반 값)이
+            # 이 고정값보다 작아진 뒤에도 그대로 쓰여 실제 잔액을 초과하는 주문이 나가는
+            # 버그가 있었다. 사용자 확인: 매일 "그 시점 남은 Pool 잔액의 1/4"로 다시
+            # 계산되어야 한다 — Pool이 작아질수록 매수량도 자연스럽게 줄다가, 정말 한 주도
+            # 못 사는 지점(real_available_cash < base_price)에서 MOC 매도로 전환된다.
+            if real_available_cash > 0:
+                one_portion_amt = real_available_cash / 4.0
             else:
                 one_portion_amt = base_portion
-                
+
             if one_portion_amt <= 0:
                 return {"orders": [], "core_orders": [], "bonus_orders": [], "total_q": qty, "avg_price": avg_price, "t_val": t_val, "one_portion": 0.0, "process_status": "⛔리버스예산오류(0원)", "is_reverse": True, "star_price": star_price, "star_ratio": star_ratio, "real_cash_used": real_available_cash, "tracking_info": tr_info}
         else:
@@ -318,7 +315,7 @@ class V14Strategy:
                             buy_qty = int(math.floor(one_portion_amt / buy_price))
                             if buy_qty > 0:
                                 core_orders.append({"side": "BUY", "price": buy_price, "qty": buy_qty, "type": "LOC", "desc": "⚓잔금매수"})
-                    
+
                     if not lock_s_sell and sell_qty > 0 and star_price > 0:
                         core_orders.append({"side": "SELL", "price": star_price, "qty": sell_qty, "type": "LOC", "desc": "🌟별값매도"})
 
@@ -327,8 +324,9 @@ class V14Strategy:
                         # 전부 같이 체결된다. 사다리 가격 공식 price(i)=예산/(buy_qty+i)은
                         # "그 가격에 총 (buy_qty+i)주를 갖게 되면 정확히 예산만큼"이 되도록
                         # 설계돼 있어, 종가가 어디서 끊기든 그 순간까지 체결된 전체 수량×종가는
-                        # 수학적으로 항상 예산(one_portion_amt) 이하다. 따라서 줍줍은 ⚓잔금매수가
-                        # 쓴 금액을 빼지 않고 예산 전액·buy_qty를 그대로 기준 삼아 이어서 계산한다.
+                        # 수학적으로 항상 예산(one_portion_amt, 이제는 real_available_cash/4로
+                        # 매번 재계산되는 실제 잔액 기준 값) 이하다. 줍줍은 ⚓잔금매수와 같은
+                        # 예산·buy_qty를 그대로 기준 삼아 이어서 계산한다.
                         bonus_orders.extend(self._build_jup_ladder(one_portion_amt, buy_qty, buy_price, base_price, "🧹리버스줍줍({})"))
                 
                 if lock_s_sell: process_status = "🔫리버스(명중)"
